@@ -1,247 +1,48 @@
-<!doctype html>
-<html lang="zh-Hant">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>台股波段雷達</title>
-<meta name="theme-color" content="#07111f" />
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>台股波段雷達 Live</title>
 <style>
-:root{
-  --bg:#07111f; --bg2:#0d1727; --card:#101c2f; --card2:#13223a;
-  --text:#f4f7fb; --muted:#92a7c5; --line:#263753;
-  --green:#2ad1a3; --orange:#ffb24b; --red:#ff6474; --blue:#58a6ff;
-  --gold:#ffd166; --purple:#b69cff;
-}
-*{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);
-font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
-.app{max-width:1180px;margin:auto;padding:18px 14px 40px}
-.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.brand h1{font-size:30px;margin:0 0 5px}.brand p{margin:0;color:var(--muted);font-size:14px}
-.badge{border:1px solid #2b466b;background:#10243e;color:#dceaff;border-radius:999px;padding:8px 10px;font-size:12px;white-space:nowrap}
-.tabs{display:flex;gap:8px;margin:18px 0;overflow:auto;padding-bottom:2px}.tab{border:1px solid #243a59;background:#101d31;color:#b9c8dd;
-padding:10px 14px;border-radius:12px;font-size:14px;white-space:nowrap}.tab.active{background:#08765f;border-color:#0d9877;color:white}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-.kpi{background:linear-gradient(180deg,#111f34,#0e1929);border:1px solid #21324c;border-radius:15px;padding:12px}
-.kpi small{color:var(--muted);display:block}.kpi b{display:block;font-size:18px;margin-top:5px}
-.section-title{display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px}
-.section-title h2{font-size:18px;margin:0}.section-title small{color:var(--muted)}
-.table{border:1px solid #24354f;background:#0d1829;border-radius:16px;overflow:hidden}
-.row{display:grid;grid-template-columns:52px 1.35fr .85fr .8fr .8fr .95fr .75fr .8fr;gap:8px;align-items:center;padding:12px 12px;border-bottom:1px solid #213149}
-.row:last-child{border-bottom:0}.row.head{background:#15243b;color:#9fb2cc;font-size:12px;padding-top:10px;padding-bottom:10px}
-.rank{font-weight:900;font-size:18px}.stock b{font-size:16px}.stock span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
-.price{font-weight:800}.up{color:#ff7a87}.vol{color:var(--green);font-weight:800}.score{color:var(--gold);font-weight:900}
-.stage{font-size:12px;color:#d5e0ee}.pill{display:inline-block;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:700}
-.p-green{background:#0f4d3d;color:#7cf0c8}.p-orange{background:#5a3c12;color:#ffd08a}.p-red{background:#5c1e28;color:#ff9da8}
-.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
-.card{background:#101c2f;border:1px solid #263651;border-radius:15px;padding:13px}.card h3{font-size:15px;margin:0 0 9px}.card p{font-size:12px;color:#c2d0e1;line-height:1.65;margin:0}
-.notice{margin-top:14px;padding:13px;border-radius:14px;background:#251c10;border:1px solid #6a4b1b;color:#ffe2a4;font-size:12px;line-height:1.6}
-.footer{margin-top:18px;color:#7086a6;font-size:11px;text-align:center}
-button.refresh{background:#183658;color:white;border:1px solid #2c527c;border-radius:10px;padding:8px 11px}
-@media(max-width:760px){
-  .brand h1{font-size:25px}.kpis{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr 1fr}
-  .row{grid-template-columns:38px 1.5fr .8fr .75fr .75fr}.hide-m{display:none}.badge{font-size:11px}
-}
-</style>
-</head>
-<body>
-<div class="app">
-  <div class="top">
-    <div class="brand">
-      <h1>台股波段雷達</h1>
-      <p>盤後 Top 20 × 09:30 放量突破掃描</p>
-    </div>
-    <div class="badge" id="sourceBadge">DEMO｜尚未串即時行情</div>
-  </div>
+:root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
+.app{max-width:1250px;margin:auto;padding:18px 14px 44px}.top{display:flex;justify-content:space-between;gap:10px}.top h1{margin:0 0 4px}.muted{color:var(--muted);font-size:12px}.badge{background:#10253e;border:1px solid #2d4a6e;border-radius:999px;padding:8px 10px;height:max-content;font-size:12px}
+.tabs{display:flex;gap:8px;overflow:auto;margin:18px 0}.tab,.btn{border:1px solid #2a4263;background:#13233a;color:white;padding:9px 12px;border-radius:10px;white-space:nowrap}.tab.active{background:#08755f}.btn.green{background:#0f5c49}.btn.red{background:#4b2028}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px}.kpi small{color:var(--muted)}.kpi b{display:block;margin-top:4px}
+.sec{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:17px 0 10px}.sec h2{margin:0;font-size:18px}.table{overflow:auto;border:1px solid var(--line);border-radius:15px;background:#0d1828}
+.rrow{min-width:1190px;display:grid;grid-template-columns:40px 130px 95px 65px 75px 100px 100px 90px 80px 80px 80px 110px 60px;gap:7px;padding:11px;border-bottom:1px solid #223149;align-items:center}.rrow.head{background:#16263e;color:#9fb3ce;font-size:11px}
+.stock b{display:block}.stock small{color:var(--muted)}.g{color:var(--g)}.o{color:var(--o)}.r{color:var(--r)}.gold{color:var(--gold);font-weight:900}
+#holdings{display:none}.lock{display:flex;justify-content:space-between;align-items:center;background:#0d192a;border:1px solid #2b3d58;border-radius:12px;padding:10px;margin-bottom:10px}
+.form{display:none;background:var(--card);border:1px solid #304661;border-radius:14px;padding:13px;margin-bottom:10px}.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}input{width:100%;padding:11px;border-radius:9px;border:1px solid #344b6a;background:#0a1524;color:white}
+.hcards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.hc{background:var(--card);border:1px solid #293a54;border-radius:14px;padding:13px}.ht{display:flex;justify-content:space-between}.metrics,.levels{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:8px}.m,.lv{background:#0b1626;border-radius:9px;padding:8px}.m small,.lv small{display:block;color:var(--muted);font-size:10px}.m b,.lv b{display:block;margin-top:3px;font-size:13px}.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.modalback{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:18px}.modal{background:var(--card);border:1px solid #314968;border-radius:16px;padding:16px;width:min(430px,100%)}
+.notice{margin-top:13px;background:#251c10;border:1px solid #6a4b1b;color:#ffe2a4;border-radius:13px;padding:12px;font-size:12px}
+@media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}.hcards{grid-template-columns:1fr}.metrics,.levels{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div class="app">
+<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">盤後 Top 20 × 09:30 放量突破 × 持股即時行情</div></div><div id="status" class="badge">讀取資料源...</div></div>
+<div class="tabs"><button class="tab active" data-mode="today">09:30 今日 Top 20</button><button class="tab" data-mode="after">盤後 Top 20</button><button class="tab" data-mode="holdings">我的持股</button></div>
+<div class="kpis"><div class="kpi"><small>掃描</small><b>上市＋上櫃</b></div><div class="kpi"><small>訊號</small><b>放量＋突破</b></div><div class="kpi"><small>處置股</small><b>優先排除</b></div><div class="kpi"><small>千金股</small><b>原則排除</b></div></div>
 
-  <div class="tabs">
-    <button class="tab active" data-mode="intraday">09:30 今日 Top 20</button>
-    <button class="tab" data-mode="after">盤後 Top 20</button>
-    <button class="tab" data-mode="holdings">我的持股</button>
-  </div>
+<div id="radar"><div class="sec"><div><h2 id="rt">09:30 今日 Top 20</h2><span class="muted" id="rs">即時掃描中</span></div><button class="btn" onclick="loadRadar()">重新掃描</button></div>
+<div class="table"><div class="rrow head"><div>#</div><div>股票</div><div>現價/漲幅</div><div>量比</div><div>距突破</div><div>回踩買點</div><div>突破買點</div><div>不追價</div><div>停損</div><div>目標1</div><div>目標2</div><div>階段</div><div>分數</div></div><div id="rr"></div></div></div>
 
-  <div class="kpis">
-    <div class="kpi"><small>掃描範圍</small><b>全上市櫃</b></div>
-    <div class="kpi"><small>核心訊號</small><b>首日放量</b></div>
-    <div class="kpi"><small>硬條件</small><b>排除處置股</b></div>
-    <div class="kpi"><small>高價股</small><b>原則排除</b></div>
-  </div>
+<div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">成本固定；即時價與每日收盤由後端更新</span></div><button class="btn green" onclick="secure(()=>openForm())">＋新增持股</button></div>
+<div class="lock"><span class="muted">管理權限：<b id="ls">🔒 已鎖定</b></span><button id="lb" class="btn" onclick="toggleLock()">解鎖管理</button></div>
+<div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"><input id="add1" type="number" step=".01" placeholder="第一加碼"><input id="add2" type="number" step=".01" placeholder="第二加碼"><input id="avg" type="number" step=".01" placeholder="攤平區"><input id="noavg" type="number" step=".01" placeholder="禁止攤平線"><input id="stop" type="number" step=".01" placeholder="停損"><input id="t1" type="number" step=".01" placeholder="目標1"><input id="t2" type="number" step=".01" placeholder="目標2"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
+<div id="hc" class="hcards"></div></div>
+<div class="notice">LIVE 模式需在伺服器環境變數設定 FUGLE_API_KEY。API Key 不會放在瀏覽器或公開 GitHub 前端。</div></div>
 
-  <div class="section-title">
-    <div><h2 id="title">09:30 今日 Top 20</h2><small id="subtitle">正在放量、接近突破／剛突破</small></div>
-    <button class="refresh" onclick="render()">重新整理</button>
-  </div>
-
-  <div class="table">
-    <div class="row head">
-      <div>#</div><div>股票</div><div>現價</div><div>量比</div>
-      <div class="hide-m">距突破</div><div class="hide-m">起漲階段</div><div>分數</div><div>動作</div>
-    </div>
-    <div id="rows"></div>
-  </div>
-
-
-  <div id="holdingsManager" style="display:none;margin-top:14px">
-    <div class="section-title">
-      <div>
-        <h2>我的持股管理</h2>
-        <small>資料只儲存在這支手機的瀏覽器，不會上傳到 GitHub</small>
-      </div>
-      <button class="refresh" onclick="openHoldingForm()">＋新增持股</button>
-    </div>
-
-    <div id="holdingForm" class="card" style="display:none;margin-bottom:14px">
-      <h3 id="holdingFormTitle">新增持股</h3>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
-        <input id="hSymbol" placeholder="股票代號，例如 2330" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
-        <input id="hName" placeholder="股票名稱，例如 台積電" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
-        <input id="hShares" type="number" step="1" placeholder="股數" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
-        <input id="hCost" type="number" step="0.01" placeholder="平均成本" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
-      </div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="refresh" onclick="saveHolding()">儲存</button>
-        <button class="refresh" style="background:#3b2430;border-color:#6a3446" onclick="closeHoldingForm()">取消</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="cards">
-    <div class="card"><h3>🔥 量能引擎</h3><p>盤中相對 5 / 10 / 20 日均量，優先抓今天突然放量、但乖離尚未過大的股票。</p></div>
-    <div class="card"><h3>📈 突破引擎</h3><p>平台、前高、短均線、缺口與型態位置，計算距突破百分比與是否需要等確認。</p></div>
-    <div class="card"><h3>💰 資金 / 籌碼</h3><p>族群資金、法人、融資與成交金額一起評分，避免只有單一新聞刺激的一日行情。</p></div>
-    <div class="card"><h3>🛡️ 風險控制</h3><p>回踩買點、突破買點、不追價線、停損與目標價，正式版會依即時成交重新計算。</p></div>
-  </div>
-
-  <div class="notice">
-    這是可直接上傳 GitHub 的手機版介面檔。現在使用示範資料，不會把示範價當成即時行情。
-    下一階段會把正式即時行情放在後端，API Key / Token 不會寫在這個前端檔案裡。
-  </div>
-  <div class="footer">Personal Stock Radar · Prototype v0.2</div>
-</div>
+<div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
 <script>
-const intraday = [
-{name:"英業達",symbol:"2356",price:"69.0",chg:"+5.99%",vr:"2.4×",near:"0.8%",stage:"首日放量",score:92,action:"等突破"},
-{name:"華新",symbol:"1605",price:"40.0",chg:"+4.44%",vr:"2.0×",near:"1.0%",stage:"資金轉強",score:88,action:"可觀察"},
-{name:"仁寶",symbol:"2324",price:"39.9",chg:"+9.92%",vr:"3.8×",near:"0.0%",stage:"強勢突破",score:86,action:"不追高"},
-{name:"長興",symbol:"1717",price:"78.6",chg:"+9.32%",vr:"3.1×",near:"0.3%",stage:"首日急放量",score:94,action:"等回踩"},
-{name:"力積電",symbol:"6770",price:"73.7",chg:"+10.0%",vr:"4.2×",near:"0.0%",stage:"巨量點火",score:84,action:"不追高"},
-{name:"廣達",symbol:"2382",price:"325.5",chg:"+2.4%",vr:"1.6×",near:"1.4%",stage:"量價轉強",score:83,action:"等確認"},
-{name:"華新科",symbol:"2492",price:"288.0",chg:"-1.4%",vr:"1.5×",near:"2.1%",stage:"強勢換手",score:81,action:"看承接"},
-{name:"南亞科",symbol:"2408",price:"482.5",chg:"-1.3%",vr:"1.7×",near:"1.8%",stage:"高檔換手",score:80,action:"等突破"},
-{name:"技嘉",symbol:"2376",price:"374.5",chg:"+9.5%",vr:"1.9×",near:"0.9%",stage:"趨勢加速",score:79,action:"不追"},
-{name:"鴻海",symbol:"2317",price:"270.0",chg:"+1.9%",vr:"1.3×",near:"1.9%",stage:"趨勢轉強",score:78,action:"觀察"}
-];
-const after = [...intraday].sort((a,b)=>b.score-a.score);
-const defaultHoldings = [
-{name:"南亞",symbol:"1303",shares:80,cost:189.00},
-{name:"聯電",symbol:"2303",shares:90,cost:123.00},
-{name:"華通",symbol:"2313",shares:45,cost:209.00},
-{name:"鴻海",symbol:"2317",shares:35,cost:270.00},
-{name:"英業達",symbol:"2356",shares:100,cost:69.00},
-{name:"技嘉",symbol:"2376",shares:20,cost:374.50},
-{name:"廣達",symbol:"2382",shares:20,cost:325.50},
-{name:"南亞科",symbol:"2408",shares:20,cost:482.50},
-{name:"華新科",symbol:"2492",shares:25,cost:288.00},
-{name:"臻鼎-KY",symbol:"4958",shares:30,cost:471.50},
-{name:"精材",symbol:"3374",shares:30,cost:330.00},
-{name:"台半",symbol:"5425",shares:100,cost:86.70},
-{name:"中探針",symbol:"6217",shares:50,cost:154.00}
-];
-
-function loadHoldingsRaw(){
-  const saved = localStorage.getItem("twStockRadarHoldings");
-  if(saved){
-    try{return JSON.parse(saved)}catch(e){}
-  }
-  localStorage.setItem("twStockRadarHoldings", JSON.stringify(defaultHoldings));
-  return [...defaultHoldings];
-}
-function persistHoldings(rows){
-  localStorage.setItem("twStockRadarHoldings", JSON.stringify(rows));
-}
-function holdingsView(){
-  return loadHoldingsRaw().map(x=>({
-    name:x.name,symbol:x.symbol,price:x.cost.toFixed(2),chg:`${x.shares}股`,
-    vr:"-",near:"-",stage:"持股",score:"—",action:"編輯"
-  }));
-}
-
-let editingSymbol = null;
-function openHoldingForm(symbol=null){
-  document.getElementById("holdingForm").style.display="block";
-  editingSymbol = symbol;
-  const rows=loadHoldingsRaw();
-  const found=rows.find(x=>x.symbol===symbol);
-  document.getElementById("holdingFormTitle").textContent = found ? "編輯持股" : "新增持股";
-  document.getElementById("hSymbol").value = found?.symbol || "";
-  document.getElementById("hName").value = found?.name || "";
-  document.getElementById("hShares").value = found?.shares || "";
-  document.getElementById("hCost").value = found?.cost || "";
-  window.scrollTo({top:document.getElementById("holdingsManager").offsetTop-20,behavior:"smooth"});
-}
-function closeHoldingForm(){
-  document.getElementById("holdingForm").style.display="none";
-  editingSymbol=null;
-}
-function saveHolding(){
-  const symbol=document.getElementById("hSymbol").value.trim();
-  const name=document.getElementById("hName").value.trim();
-  const shares=Number(document.getElementById("hShares").value);
-  const cost=Number(document.getElementById("hCost").value);
-  if(!symbol||!name||!Number.isFinite(shares)||shares<=0||!Number.isFinite(cost)||cost<=0){
-    alert("請完整輸入股票代號、名稱、股數與平均成本");
-    return;
-  }
-  let rows=loadHoldingsRaw();
-  if(editingSymbol){
-    rows=rows.filter(x=>x.symbol!==editingSymbol);
-  }else if(rows.some(x=>x.symbol===symbol)){
-    alert("這個股票代號已存在，請直接編輯原持股");
-    return;
-  }
-  rows.push({symbol,name,shares,cost});
-  rows.sort((a,b)=>a.symbol.localeCompare(b.symbol));
-  persistHoldings(rows);
-  closeHoldingForm();
-  render();
-}
-function deleteHolding(symbol){
-  if(!confirm(`確定刪除 ${symbol} 嗎？`)) return;
-  persistHoldings(loadHoldingsRaw().filter(x=>x.symbol!==symbol));
-  render();
-}
-
-let mode="intraday";
-document.querySelectorAll(".tab").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-    btn.classList.add("active"); mode=btn.dataset.mode; render();
-  });
-});
-function actionClass(a){ if(a.includes("不追"))return"p-red"; if(a.includes("等")||a.includes("觀察"))return"p-orange"; return"p-green"; }
-function render(){
-  const data = mode==="intraday"?intraday:mode==="after"?after:holdingsView();
-  document.getElementById("holdingsManager").style.display = mode==="holdings" ? "block" : "none";
-  document.getElementById("title").textContent = mode==="intraday"?"09:30 今日 Top 20":mode==="after"?"盤後 Top 20":"我的持股";
-  document.getElementById("subtitle").textContent = mode==="intraday"?"正在放量、接近突破／剛突破":mode==="after"?"當日首日放量／剛突破觀察池":"可直接新增、編輯、刪除；現價欄暫顯示平均成本";
-  document.getElementById("rows").innerHTML = data.map((r,i)=>`
-    <div class="row">
-      <div class="rank">${i+1}</div>
-      <div class="stock"><b>${r.name}</b><span>${r.symbol} · ${r.stage}</span></div>
-      <div><div class="price">${r.price}</div><div class="up" style="font-size:11px">${r.chg}</div></div>
-      <div class="vol">${r.vr}</div>
-      <div class="hide-m">${r.near}</div>
-      <div class="hide-m stage">${r.stage}</div>
-      <div class="score">${r.score}</div>
-      <div>${mode==="holdings"
-        ? `<div style="display:flex;gap:5px;flex-wrap:wrap">
-             <button onclick="openHoldingForm('${r.symbol}')" class="pill p-orange" style="border:0">編輯</button>
-             <button onclick="deleteHolding('${r.symbol}')" class="pill p-red" style="border:0">刪除</button>
-           </div>`
-        : `<span class="pill ${actionClass(r.action)}">${r.action}</span>`}</div>
-    </div>`).join("");
-}
-render();
-</script>
-</body>
-</html>
+const DH=[{symbol:"1303",name:"南亞",shares:80,cost:187.26},{symbol:"2303",name:"聯電",shares:90,cost:152.27},{symbol:"2313",name:"華通",shares:45,cost:240.07},{symbol:"2317",name:"鴻海",shares:35,cost:263.57},{symbol:"2356",name:"英業達",shares:100,cost:68.92},{symbol:"2376",name:"技嘉",shares:20,cost:340.10},{symbol:"2382",name:"廣達",shares:20,cost:324.60},{symbol:"2408",name:"南亞科",shares:20,cost:486.65},{symbol:"2492",name:"華新科",shares:25,cost:290.56},{symbol:"4958",name:"臻鼎-KY",shares:30,cost:645.20},{symbol:"3374",name:"精材",shares:30,cost:334.60},{symbol:"5425",name:"台半",shares:100,cost:103.53},{symbol:"6217",name:"中探針",shares:50,cost:180.06}];
+let mode="today", unlocked=false,pending=null,editing=null;
+function H(){try{let x=JSON.parse(localStorage.getItem("holdingsLive"));if(Array.isArray(x))return x}catch(e){}localStorage.setItem("holdingsLive",JSON.stringify(DH));return [...DH]}function saveAll(x){localStorage.setItem("holdingsLive",JSON.stringify(x))}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");mode=b.dataset.mode;renderMode()});
+async function status(){let x=await fetch("/api/status").then(r=>r.json());document.getElementById("status").textContent=x.live?"LIVE｜Fugle":"DEMO｜未設定 API Key"}
+async function loadRadar(){let ep=mode==="after"?"/api/radar/afterhours":"/api/radar/intraday";document.getElementById("rs").textContent="掃描中...";let x=await fetch(ep).then(r=>r.json());document.getElementById("rr").innerHTML=(x.rows||[]).map((r,i)=>`<div class="rrow"><div class="gold">${i+1}</div><div class="stock"><b>${r.name}</b><small>${r.symbol}</small></div><div><b>${r.price??"-"}</b><small class="${(r.changePercent||0)>=0?'r':'g'}">${r.changePercent??"-"}%</small></div><div class="g">${r.volRatio??"-"}×</div><div>${r.breakoutDistance??"-"}%</div><div class="g">${r.pullback??"-"}</div><div class="o">${r.breakout??"-"}</div><div class="r">${r.noChase??"-"}</div><div class="r">${r.stop??"-"}</div><div>${r.target1??"-"}</div><div>${r.target2??"-"}</div><div>${r.stage??"-"}</div><div class="gold">${r.score??"-"}</div></div>`).join("");document.getElementById("rs").textContent=x.live?"即時資料":"DEMO 資料"}
+async function renderHoldings(){let hs=H(),syms=hs.map(x=>x.symbol).join(","),quotes={};try{let q=await fetch("/api/holdings/quotes?symbols="+encodeURIComponent(syms)).then(r=>r.json());(q.rows||[]).forEach(x=>quotes[x.symbol]=x)}catch(e){}
+document.getElementById("hc").innerHTML=hs.map(h=>{let q=quotes[h.symbol]||{},px=Number(q.lastPrice??q.closePrice??q.price??h.close??h.cost),prev=Number(q.previousClose??h.prevClose??px),pct=h.cost?((px/h.cost)-1)*100:0,pnl=(px-h.cost)*h.shares,day=prev?((px/prev)-1)*100:0;return `<div class="hc"><div class="ht"><div class="stock"><b>${h.name}</b><small>${h.symbol} · ${h.shares}股</small></div><span class="gold">${px.toFixed(2)}</span></div><div class="metrics"><div class="m"><small>持股成本</small><b>${Number(h.cost).toFixed(2)}</b></div><div class="m"><small>即時/收盤</small><b>${px.toFixed(2)}</b></div><div class="m"><small>報酬率</small><b class="${pct>=0?'r':'g'}">${pct.toFixed(2)}%</b></div><div class="m"><small>今日漲跌</small><b>${day.toFixed(2)}%</b></div><div class="m"><small>未實現損益</small><b>${Math.round(pnl).toLocaleString()}</b></div></div><div class="levels"><div class="lv"><small>第一加碼</small><b class="g">${h.add1??"-"}</b></div><div class="lv"><small>第二加碼</small><b class="g">${h.add2??"-"}</b></div><div class="lv"><small>攤平區</small><b class="o">${h.avg??"-"}</b></div><div class="lv"><small>禁止攤平</small><b class="r">${h.noavg??"-"}</b></div><div class="lv"><small>停損</small><b class="r">${h.stop??"-"}</b></div><div class="lv"><small>目標1/2</small><b>${h.t1??"-"} / ${h.t2??"-"}</b></div></div><div class="acts"><button class="btn" onclick="secure(()=>openForm('${h.symbol}'))">編輯</button><button class="btn red" onclick="secure(()=>delH('${h.symbol}'))">刪除</button></div></div>`}).join("")}
+function renderMode(){let hh=mode==="holdings";radar.style.display=hh?"none":"block";holdings.style.display=hh?"block":"none";if(hh)renderHoldings();else{rt.textContent=mode==="after"?"盤後 Top 20":"09:30 今日 Top 20";rs.textContent=mode==="after"?"盤後首日放量／剛突破":"盤中放量、準備突破";loadRadar()}updateLock()}
+function openForm(s=null){editing=s;let h=H().find(x=>x.symbol===s);form.style.display="block";[sym,nm,sh,cost,add1,add2,avg,noavg,stop,t1,t2].forEach(x=>x.value="");if(h){sym.value=h.symbol;nm.value=h.name;sh.value=h.shares;cost.value=h.cost;add1.value=h.add1||"";add2.value=h.add2||"";avg.value=h.avg||"";noavg.value=h.noavg||"";stop.value=h.stop||"";t1.value=h.t1||"";t2.value=h.t2||""}}
+function closeForm(){form.style.display="none";editing=null}function saveH(){let h={symbol:sym.value.trim(),name:nm.value.trim(),shares:+sh.value,cost:+cost.value,add1:+add1.value||null,add2:+add2.value||null,avg:+avg.value||null,noavg:+noavg.value||null,stop:+stop.value||null,t1:+t1.value||null,t2:+t2.value||null};if(!h.symbol||!h.name||h.shares<=0||h.cost<=0){alert("請填完整");return}let x=H().filter(y=>y.symbol!==editing);x.push(h);saveAll(x);closeForm();renderHoldings()}function delH(s){if(confirm("確定刪除？")){saveAll(H().filter(x=>x.symbol!==s));renderHoldings()}}
+async function hp(p){let d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(p));return[...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("")}function hasPin(){return!!localStorage.getItem("pinLive")}function updateLock(){if(!ls)return;ls.textContent=unlocked?"🔓 已解鎖":"🔒 已鎖定";lb.textContent=unlocked?"鎖定管理":hasPin()?"解鎖管理":"設定管理 PIN"}function secure(fn){if(unlocked){fn();return}pending=fn;openPin(hasPin()?"unlock":"create")}function openPin(m){pb.style.display="flex";p1.value="";p2.value="";p1.dataset.mode=m;p2.style.display=m==="create"?"block":"none";pt.textContent=m==="create"?"設定管理 PIN":"解鎖管理"}function closePin(){pb.style.display="none";pending=null}async function submitPin(){let p=p1.value.trim(),m=p1.dataset.mode;if(p.length<4){alert("至少4碼");return}if(m==="create"){if(p!==p2.value.trim()){alert("兩次不一致");return}localStorage.setItem("pinLive",await hp(p));unlocked=true}else{if(await hp(p)!==localStorage.getItem("pinLive")){alert("PIN錯誤");return}unlocked=true}pb.style.display="none";updateLock();let f=pending;pending=null;if(f)f()}function toggleLock(){if(unlocked){unlocked=false;closeForm();updateLock()}else openPin(hasPin()?"unlock":"create")}
+status();renderMode();
+</script></body></html>
