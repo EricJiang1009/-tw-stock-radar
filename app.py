@@ -22,6 +22,10 @@ FINMIND_STATUS = "disabled" if not FINMIND_ENABLED else "starting"
 FINMIND_LAST_ATTEMPT_AT = 0.0
 FINMIND_LAST_SUCCESS_AT = 0.0
 FINMIND_LAST_ERROR = ""
+FINMIND_LOOP_LAST_AT = 0.0
+FINMIND_INTERVAL_MARKET = 300
+FINMIND_INTERVAL_AFTER = 900
+FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -510,7 +514,6 @@ async def collect_cycle():
     async with scan_lock:
         collector_status = "collecting"
         await refresh_enrichment()
-        await refresh_finmind_priority()
 
         # 1) 持股優先完整更新
         await collect_holdings_full()
@@ -751,6 +754,39 @@ async def refresh_enrichment():
     # Leave unavailable until a verified value is obtained; UI explicitly shows 資料不足.
     enrich_updated_at=time.time()
 
+
+async def finmind_loop():
+    global FINMIND_STATUS, FINMIND_LOOP_LAST_AT, FINMIND_LAST_ERROR
+
+    if not FINMIND_ENABLED:
+        FINMIND_STATUS = "disabled"
+        return
+
+    await asyncio.sleep(5)
+
+    while True:
+        try:
+            FINMIND_STATUS = "updating"
+            await refresh_finmind_priority()
+            FINMIND_LOOP_LAST_AT = time.time()
+
+            if FINMIND_STATUS == "updating":
+                FINMIND_STATUS = "ready"
+
+        except Exception as e:
+            FINMIND_STATUS = "error"
+            FINMIND_LAST_ERROR = str(e)[:180]
+            print("finmind loop", e)
+
+        if in_market():
+            delay = FINMIND_INTERVAL_MARKET
+        elif is_afterhours():
+            delay = FINMIND_INTERVAL_AFTER
+        else:
+            delay = FINMIND_INTERVAL_OFF
+
+        await asyncio.sleep(delay)
+
 async def collector_loop():
     await asyncio.sleep(2)
 
@@ -776,7 +812,9 @@ async def startup_event():
         await refresh_universe(force=True)
     except Exception as e:
         print("universe startup", e)
+
     asyncio.create_task(collector_loop())
+    asyncio.create_task(finmind_loop())
 
 
 @app.get("/")
@@ -798,6 +836,7 @@ async def status():
         "finmindLastAttemptAt": FINMIND_LAST_ATTEMPT_AT,
         "finmindLastSuccessAt": FINMIND_LAST_SUCCESS_AT,
         "finmindLastError": FINMIND_LAST_ERROR,
+        "finmindLoopLastAt": FINMIND_LOOP_LAST_AT,
         "lastError": last_error,
         "universeCount": len(current_universe()),
         "universeSource": universe_source,
