@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 Buffered Live v3")
+app = FastAPI(title="台股波段雷達 V8.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -690,17 +690,29 @@ async def refresh_finmind_priority():
     if not FINMIND_ENABLED:
         FINMIND_STATUS = "disabled"
         return
+
     FINMIND_STATUS = "updating"
-    # Enrich holdings first, then strongest currently-known candidates.
-    symbols=[]
-    for h in holdings:
-        s=str(h.get("symbol",""))
-        if s and s not in symbols: symbols.append(s)
-    ranked=sorted(analysis_cache.values(), key=lambda x:x.get("score",0), reverse=True)
+
+    # Enrich registered holdings first.
+    # holding_symbols is the backend set actually used by this app.
+    symbols = []
+    for s in sorted(holding_symbols):
+        s = str(s).strip()
+        if s and s not in symbols:
+            symbols.append(s)
+
+    # Then enrich strongest currently-known radar candidates.
+    ranked = sorted(
+        analysis_cache.values(),
+        key=lambda x: x.get("score", 0),
+        reverse=True
+    )
     for x in ranked[:20]:
-        s=str(x.get("symbol",""))
-        if s and s not in symbols: symbols.append(s)
-    # Rate-limit friendly: only a few symbols per collector pass.
+        s = str(x.get("symbol", "")).strip()
+        if s and s not in symbols:
+            symbols.append(s)
+
+    # Rate-limit friendly: only a few symbols per FinMind pass.
     for s in symbols[:4]:
         await enrich_finmind_symbol(s)
 
