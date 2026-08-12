@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+
 from fastapi.middleware.cors import CORSMiddleware
 
 BASE = "https://api.fugle.tw/marketdata/v1.0/stock"
@@ -14,7 +14,7 @@ LIVE_MODE = os.getenv("LIVE_MODE","false").lower() == "true" and bool(API_KEY)
 
 app = FastAPI(title="台股波段雷達 Live")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 DEMO = [
  {"symbol":"1717","name":"長興","price":78.6,"changePercent":9.32,"volume":63148,"volRatio":3.1,"breakoutDistance":0.3,"stage":"首日急放量","score":94},
@@ -134,7 +134,7 @@ async def scan_market():
 
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse("index.html")
 
 @app.get("/api/status")
 async def status():
