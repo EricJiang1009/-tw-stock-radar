@@ -79,6 +79,31 @@ button.refresh{background:#183658;color:white;border:1px solid #2c527c;border-ra
     <div id="rows"></div>
   </div>
 
+
+  <div id="holdingsManager" style="display:none;margin-top:14px">
+    <div class="section-title">
+      <div>
+        <h2>我的持股管理</h2>
+        <small>資料只儲存在這支手機的瀏覽器，不會上傳到 GitHub</small>
+      </div>
+      <button class="refresh" onclick="openHoldingForm()">＋新增持股</button>
+    </div>
+
+    <div id="holdingForm" class="card" style="display:none;margin-bottom:14px">
+      <h3 id="holdingFormTitle">新增持股</h3>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+        <input id="hSymbol" placeholder="股票代號，例如 2330" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
+        <input id="hName" placeholder="股票名稱，例如 台積電" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
+        <input id="hShares" type="number" step="1" placeholder="股數" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
+        <input id="hCost" type="number" step="0.01" placeholder="平均成本" style="padding:12px;border-radius:10px;border:1px solid #334866;background:#0b1626;color:white">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="refresh" onclick="saveHolding()">儲存</button>
+        <button class="refresh" style="background:#3b2430;border-color:#6a3446" onclick="closeHoldingForm()">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div class="cards">
     <div class="card"><h3>🔥 量能引擎</h3><p>盤中相對 5 / 10 / 20 日均量，優先抓今天突然放量、但乖離尚未過大的股票。</p></div>
     <div class="card"><h3>📈 突破引擎</h3><p>平台、前高、短均線、缺口與型態位置，計算距突破百分比與是否需要等確認。</p></div>
@@ -107,18 +132,85 @@ const intraday = [
 {name:"鴻海",symbol:"2317",price:"270.0",chg:"+1.9%",vr:"1.3×",near:"1.9%",stage:"趨勢轉強",score:78,action:"觀察"}
 ];
 const after = [...intraday].sort((a,b)=>b.score-a.score);
-const holdings = [
-{name:"南亞",symbol:"1303",price:"189.0",chg:"+0.49%",vr:"-",near:"-",stage:"持股",score:70,action:"續抱"},
-{name:"聯電",symbol:"2303",price:"123.0",chg:"-19.61%",vr:"-",near:"-",stage:"持股",score:55,action:"待檢視"},
-{name:"華通",symbol:"2313",price:"209.0",chg:"-13.39%",vr:"-",near:"-",stage:"持股",score:58,action:"待檢視"},
-{name:"鴻海",symbol:"2317",price:"270.0",chg:"+1.92%",vr:"-",near:"-",stage:"持股",score:76,action:"續抱"},
-{name:"英業達",symbol:"2356",price:"69.0",chg:"-0.46%",vr:"-",near:"-",stage:"持股",score:82,action:"觀察"},
-{name:"技嘉",symbol:"2376",price:"374.5",chg:"+9.50%",vr:"-",near:"-",stage:"持股",score:85,action:"續抱"},
-{name:"廣達",symbol:"2382",price:"325.5",chg:"-0.32%",vr:"-",near:"-",stage:"持股",score:80,action:"觀察"},
-{name:"南亞科",symbol:"2408",price:"482.5",chg:"-1.35%",vr:"-",near:"-",stage:"持股",score:78,action:"觀察"},
-{name:"華新科",symbol:"2492",price:"288.0",chg:"-1.45%",vr:"-",near:"-",stage:"持股",score:77,action:"觀察"},
-{name:"臻鼎-KY",symbol:"4958",price:"471.5",chg:"-27.24%",vr:"-",near:"-",stage:"持股",score:50,action:"待檢視"}
+const defaultHoldings = [
+{name:"南亞",symbol:"1303",shares:80,cost:189.00},
+{name:"聯電",symbol:"2303",shares:90,cost:123.00},
+{name:"華通",symbol:"2313",shares:45,cost:209.00},
+{name:"鴻海",symbol:"2317",shares:35,cost:270.00},
+{name:"英業達",symbol:"2356",shares:100,cost:69.00},
+{name:"技嘉",symbol:"2376",shares:20,cost:374.50},
+{name:"廣達",symbol:"2382",shares:20,cost:325.50},
+{name:"南亞科",symbol:"2408",shares:20,cost:482.50},
+{name:"華新科",symbol:"2492",shares:25,cost:288.00},
+{name:"臻鼎-KY",symbol:"4958",shares:30,cost:471.50},
+{name:"精材",symbol:"3374",shares:30,cost:330.00},
+{name:"台半",symbol:"5425",shares:100,cost:86.70},
+{name:"中探針",symbol:"6217",shares:50,cost:154.00}
 ];
+
+function loadHoldingsRaw(){
+  const saved = localStorage.getItem("twStockRadarHoldings");
+  if(saved){
+    try{return JSON.parse(saved)}catch(e){}
+  }
+  localStorage.setItem("twStockRadarHoldings", JSON.stringify(defaultHoldings));
+  return [...defaultHoldings];
+}
+function persistHoldings(rows){
+  localStorage.setItem("twStockRadarHoldings", JSON.stringify(rows));
+}
+function holdingsView(){
+  return loadHoldingsRaw().map(x=>({
+    name:x.name,symbol:x.symbol,price:x.cost.toFixed(2),chg:`${x.shares}股`,
+    vr:"-",near:"-",stage:"持股",score:"—",action:"編輯"
+  }));
+}
+
+let editingSymbol = null;
+function openHoldingForm(symbol=null){
+  document.getElementById("holdingForm").style.display="block";
+  editingSymbol = symbol;
+  const rows=loadHoldingsRaw();
+  const found=rows.find(x=>x.symbol===symbol);
+  document.getElementById("holdingFormTitle").textContent = found ? "編輯持股" : "新增持股";
+  document.getElementById("hSymbol").value = found?.symbol || "";
+  document.getElementById("hName").value = found?.name || "";
+  document.getElementById("hShares").value = found?.shares || "";
+  document.getElementById("hCost").value = found?.cost || "";
+  window.scrollTo({top:document.getElementById("holdingsManager").offsetTop-20,behavior:"smooth"});
+}
+function closeHoldingForm(){
+  document.getElementById("holdingForm").style.display="none";
+  editingSymbol=null;
+}
+function saveHolding(){
+  const symbol=document.getElementById("hSymbol").value.trim();
+  const name=document.getElementById("hName").value.trim();
+  const shares=Number(document.getElementById("hShares").value);
+  const cost=Number(document.getElementById("hCost").value);
+  if(!symbol||!name||!Number.isFinite(shares)||shares<=0||!Number.isFinite(cost)||cost<=0){
+    alert("請完整輸入股票代號、名稱、股數與平均成本");
+    return;
+  }
+  let rows=loadHoldingsRaw();
+  if(editingSymbol){
+    rows=rows.filter(x=>x.symbol!==editingSymbol);
+  }else if(rows.some(x=>x.symbol===symbol)){
+    alert("這個股票代號已存在，請直接編輯原持股");
+    return;
+  }
+  rows.push({symbol,name,shares,cost});
+  rows.sort((a,b)=>a.symbol.localeCompare(b.symbol));
+  persistHoldings(rows);
+  closeHoldingForm();
+  render();
+}
+function deleteHolding(symbol){
+  if(!confirm(`確定刪除 ${symbol} 嗎？`)) return;
+  persistHoldings(loadHoldingsRaw().filter(x=>x.symbol!==symbol));
+  render();
+}
+
 let mode="intraday";
 document.querySelectorAll(".tab").forEach(btn=>{
   btn.addEventListener("click",()=>{
@@ -128,9 +220,10 @@ document.querySelectorAll(".tab").forEach(btn=>{
 });
 function actionClass(a){ if(a.includes("不追"))return"p-red"; if(a.includes("等")||a.includes("觀察"))return"p-orange"; return"p-green"; }
 function render(){
-  const data = mode==="intraday"?intraday:mode==="after"?after:holdings;
+  const data = mode==="intraday"?intraday:mode==="after"?after:holdingsView();
+  document.getElementById("holdingsManager").style.display = mode==="holdings" ? "block" : "none";
   document.getElementById("title").textContent = mode==="intraday"?"09:30 今日 Top 20":mode==="after"?"盤後 Top 20":"我的持股";
-  document.getElementById("subtitle").textContent = mode==="intraday"?"正在放量、接近突破／剛突破":mode==="after"?"當日首日放量／剛突破觀察池":"持股管理與後續風險判斷";
+  document.getElementById("subtitle").textContent = mode==="intraday"?"正在放量、接近突破／剛突破":mode==="after"?"當日首日放量／剛突破觀察池":"可直接新增、編輯、刪除；現價欄暫顯示平均成本";
   document.getElementById("rows").innerHTML = data.map((r,i)=>`
     <div class="row">
       <div class="rank">${i+1}</div>
@@ -140,7 +233,12 @@ function render(){
       <div class="hide-m">${r.near}</div>
       <div class="hide-m stage">${r.stage}</div>
       <div class="score">${r.score}</div>
-      <div><span class="pill ${actionClass(r.action)}">${r.action}</span></div>
+      <div>${mode==="holdings"
+        ? `<div style="display:flex;gap:5px;flex-wrap:wrap">
+             <button onclick="openHoldingForm('${r.symbol}')" class="pill p-orange" style="border:0">編輯</button>
+             <button onclick="deleteHolding('${r.symbol}')" class="pill p-red" style="border:0">刪除</button>
+           </div>`
+        : `<span class="pill ${actionClass(r.action)}">${r.action}</span>`}</div>
     </div>`).join("");
 }
 render();
