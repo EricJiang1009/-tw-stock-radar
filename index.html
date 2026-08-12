@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>台股波段雷達</title>
+<meta name="theme-color" content="#07111f" />
+<style>
+:root{
+  --bg:#07111f; --bg2:#0d1727; --card:#101c2f; --card2:#13223a;
+  --text:#f4f7fb; --muted:#92a7c5; --line:#263753;
+  --green:#2ad1a3; --orange:#ffb24b; --red:#ff6474; --blue:#58a6ff;
+  --gold:#ffd166; --purple:#b69cff;
+}
+*{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);
+font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+.app{max-width:1180px;margin:auto;padding:18px 14px 40px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.brand h1{font-size:30px;margin:0 0 5px}.brand p{margin:0;color:var(--muted);font-size:14px}
+.badge{border:1px solid #2b466b;background:#10243e;color:#dceaff;border-radius:999px;padding:8px 10px;font-size:12px;white-space:nowrap}
+.tabs{display:flex;gap:8px;margin:18px 0;overflow:auto;padding-bottom:2px}.tab{border:1px solid #243a59;background:#101d31;color:#b9c8dd;
+padding:10px 14px;border-radius:12px;font-size:14px;white-space:nowrap}.tab.active{background:#08765f;border-color:#0d9877;color:white}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:linear-gradient(180deg,#111f34,#0e1929);border:1px solid #21324c;border-radius:15px;padding:12px}
+.kpi small{color:var(--muted);display:block}.kpi b{display:block;font-size:18px;margin-top:5px}
+.section-title{display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px}
+.section-title h2{font-size:18px;margin:0}.section-title small{color:var(--muted)}
+.table{border:1px solid #24354f;background:#0d1829;border-radius:16px;overflow:hidden}
+.row{display:grid;grid-template-columns:52px 1.35fr .85fr .8fr .8fr .95fr .75fr .8fr;gap:8px;align-items:center;padding:12px 12px;border-bottom:1px solid #213149}
+.row:last-child{border-bottom:0}.row.head{background:#15243b;color:#9fb2cc;font-size:12px;padding-top:10px;padding-bottom:10px}
+.rank{font-weight:900;font-size:18px}.stock b{font-size:16px}.stock span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.price{font-weight:800}.up{color:#ff7a87}.vol{color:var(--green);font-weight:800}.score{color:var(--gold);font-weight:900}
+.stage{font-size:12px;color:#d5e0ee}.pill{display:inline-block;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.p-green{background:#0f4d3d;color:#7cf0c8}.p-orange{background:#5a3c12;color:#ffd08a}.p-red{background:#5c1e28;color:#ff9da8}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+.card{background:#101c2f;border:1px solid #263651;border-radius:15px;padding:13px}.card h3{font-size:15px;margin:0 0 9px}.card p{font-size:12px;color:#c2d0e1;line-height:1.65;margin:0}
+.notice{margin-top:14px;padding:13px;border-radius:14px;background:#251c10;border:1px solid #6a4b1b;color:#ffe2a4;font-size:12px;line-height:1.6}
+.footer{margin-top:18px;color:#7086a6;font-size:11px;text-align:center}
+button.refresh{background:#183658;color:white;border:1px solid #2c527c;border-radius:10px;padding:8px 11px}
+@media(max-width:760px){
+  .brand h1{font-size:25px}.kpis{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr 1fr}
+  .row{grid-template-columns:38px 1.5fr .8fr .75fr .75fr}.hide-m{display:none}.badge{font-size:11px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="brand">
+      <h1>台股波段雷達</h1>
+      <p>盤後 Top 20 × 09:30 放量突破掃描</p>
+    </div>
+    <div class="badge" id="sourceBadge">DEMO｜尚未串即時行情</div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-mode="intraday">09:30 今日 Top 20</button>
+    <button class="tab" data-mode="after">盤後 Top 20</button>
+    <button class="tab" data-mode="holdings">我的持股</button>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><small>掃描範圍</small><b>全上市櫃</b></div>
+    <div class="kpi"><small>核心訊號</small><b>首日放量</b></div>
+    <div class="kpi"><small>硬條件</small><b>排除處置股</b></div>
+    <div class="kpi"><small>高價股</small><b>原則排除</b></div>
+  </div>
+
+  <div class="section-title">
+    <div><h2 id="title">09:30 今日 Top 20</h2><small id="subtitle">正在放量、接近突破／剛突破</small></div>
+    <button class="refresh" onclick="render()">重新整理</button>
+  </div>
+
+  <div class="table">
+    <div class="row head">
+      <div>#</div><div>股票</div><div>現價</div><div>量比</div>
+      <div class="hide-m">距突破</div><div class="hide-m">起漲階段</div><div>分數</div><div>動作</div>
+    </div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><h3>🔥 量能引擎</h3><p>盤中相對 5 / 10 / 20 日均量，優先抓今天突然放量、但乖離尚未過大的股票。</p></div>
+    <div class="card"><h3>📈 突破引擎</h3><p>平台、前高、短均線、缺口與型態位置，計算距突破百分比與是否需要等確認。</p></div>
+    <div class="card"><h3>💰 資金 / 籌碼</h3><p>族群資金、法人、融資與成交金額一起評分，避免只有單一新聞刺激的一日行情。</p></div>
+    <div class="card"><h3>🛡️ 風險控制</h3><p>回踩買點、突破買點、不追價線、停損與目標價，正式版會依即時成交重新計算。</p></div>
+  </div>
+
+  <div class="notice">
+    這是可直接上傳 GitHub 的手機版介面檔。現在使用示範資料，不會把示範價當成即時行情。
+    下一階段會把正式即時行情放在後端，API Key / Token 不會寫在這個前端檔案裡。
+  </div>
+  <div class="footer">Personal Stock Radar · Prototype v0.2</div>
+</div>
+
+<script>
+const intraday = [
+{name:"英業達",symbol:"2356",price:"69.0",chg:"+5.99%",vr:"2.4×",near:"0.8%",stage:"首日放量",score:92,action:"等突破"},
+{name:"華新",symbol:"1605",price:"40.0",chg:"+4.44%",vr:"2.0×",near:"1.0%",stage:"資金轉強",score:88,action:"可觀察"},
+{name:"仁寶",symbol:"2324",price:"39.9",chg:"+9.92%",vr:"3.8×",near:"0.0%",stage:"強勢突破",score:86,action:"不追高"},
+{name:"長興",symbol:"1717",price:"78.6",chg:"+9.32%",vr:"3.1×",near:"0.3%",stage:"首日急放量",score:94,action:"等回踩"},
+{name:"力積電",symbol:"6770",price:"73.7",chg:"+10.0%",vr:"4.2×",near:"0.0%",stage:"巨量點火",score:84,action:"不追高"},
+{name:"廣達",symbol:"2382",price:"325.5",chg:"+2.4%",vr:"1.6×",near:"1.4%",stage:"量價轉強",score:83,action:"等確認"},
+{name:"華新科",symbol:"2492",price:"288.0",chg:"-1.4%",vr:"1.5×",near:"2.1%",stage:"強勢換手",score:81,action:"看承接"},
+{name:"南亞科",symbol:"2408",price:"482.5",chg:"-1.3%",vr:"1.7×",near:"1.8%",stage:"高檔換手",score:80,action:"等突破"},
+{name:"技嘉",symbol:"2376",price:"374.5",chg:"+9.5%",vr:"1.9×",near:"0.9%",stage:"趨勢加速",score:79,action:"不追"},
+{name:"鴻海",symbol:"2317",price:"270.0",chg:"+1.9%",vr:"1.3×",near:"1.9%",stage:"趨勢轉強",score:78,action:"觀察"}
+];
+const after = [...intraday].sort((a,b)=>b.score-a.score);
+const holdings = [
+{name:"南亞",symbol:"1303",price:"189.0",chg:"+0.49%",vr:"-",near:"-",stage:"持股",score:70,action:"續抱"},
+{name:"聯電",symbol:"2303",price:"123.0",chg:"-19.61%",vr:"-",near:"-",stage:"持股",score:55,action:"待檢視"},
+{name:"華通",symbol:"2313",price:"209.0",chg:"-13.39%",vr:"-",near:"-",stage:"持股",score:58,action:"待檢視"},
+{name:"鴻海",symbol:"2317",price:"270.0",chg:"+1.92%",vr:"-",near:"-",stage:"持股",score:76,action:"續抱"},
+{name:"英業達",symbol:"2356",price:"69.0",chg:"-0.46%",vr:"-",near:"-",stage:"持股",score:82,action:"觀察"},
+{name:"技嘉",symbol:"2376",price:"374.5",chg:"+9.50%",vr:"-",near:"-",stage:"持股",score:85,action:"續抱"},
+{name:"廣達",symbol:"2382",price:"325.5",chg:"-0.32%",vr:"-",near:"-",stage:"持股",score:80,action:"觀察"},
+{name:"南亞科",symbol:"2408",price:"482.5",chg:"-1.35%",vr:"-",near:"-",stage:"持股",score:78,action:"觀察"},
+{name:"華新科",symbol:"2492",price:"288.0",chg:"-1.45%",vr:"-",near:"-",stage:"持股",score:77,action:"觀察"},
+{name:"臻鼎-KY",symbol:"4958",price:"471.5",chg:"-27.24%",vr:"-",near:"-",stage:"持股",score:50,action:"待檢視"}
+];
+let mode="intraday";
+document.querySelectorAll(".tab").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    btn.classList.add("active"); mode=btn.dataset.mode; render();
+  });
+});
+function actionClass(a){ if(a.includes("不追"))return"p-red"; if(a.includes("等")||a.includes("觀察"))return"p-orange"; return"p-green"; }
+function render(){
+  const data = mode==="intraday"?intraday:mode==="after"?after:holdings;
+  document.getElementById("title").textContent = mode==="intraday"?"09:30 今日 Top 20":mode==="after"?"盤後 Top 20":"我的持股";
+  document.getElementById("subtitle").textContent = mode==="intraday"?"正在放量、接近突破／剛突破":mode==="after"?"當日首日放量／剛突破觀察池":"持股管理與後續風險判斷";
+  document.getElementById("rows").innerHTML = data.map((r,i)=>`
+    <div class="row">
+      <div class="rank">${i+1}</div>
+      <div class="stock"><b>${r.name}</b><span>${r.symbol} · ${r.stage}</span></div>
+      <div><div class="price">${r.price}</div><div class="up" style="font-size:11px">${r.chg}</div></div>
+      <div class="vol">${r.vr}</div>
+      <div class="hide-m">${r.near}</div>
+      <div class="hide-m stage">${r.stage}</div>
+      <div class="score">${r.score}</div>
+      <div><span class="pill ${actionClass(r.action)}">${r.action}</span></div>
+    </div>`).join("");
+}
+render();
+</script>
+</body>
+</html>
