@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Three Layer Radar v7 Compact</title>
+<title>台股波段雷達 Three Layer Radar v7 Compact Sorted</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -37,12 +37,12 @@
 <div id="radar"><div class="sec"><div><h2 id="rt">09:30 今日 Top 20</h2><span class="muted" id="rs">背景蒐集中；按「顯示最新掃描」才更新畫面</span></div><button class="btn green" onclick="publishRadar()">顯示最新掃描</button></div>
 <div class="table"><div class="rrow head"><div>#</div><div>股票</div><div>現價/漲幅</div><div>量比</div><div>黃金交叉</div><div>5日乖離</div><div>PE</div><div>EPS</div><div>融資%</div><div>技術分</div><div>基本分</div><div>籌碼分</div><div>回踩</div><div>突破</div><div>階段</div><div>綜合</div></div><div id="rr"></div></div></div>
 
-<div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">預設收合：只顯示名稱、代號、報酬率</span></div><div><button class="btn" id="toggleAllBtn" onclick="toggleAllHoldings()">全部展開</button> <button class="btn green" onclick="publishHoldings()">顯示最新行情</button> <button class="btn" onclick="secure(()=>openForm())">＋新增持股</button></div></div>
+<div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">預設收合｜依報酬率由高到低排序｜刷新最新行情後自動重排</span></div><div><button class="btn" id="toggleAllBtn" onclick="toggleAllHoldings()">全部展開</button> <button class="btn green" onclick="publishHoldings()">顯示最新行情</button> <button class="btn" onclick="secure(()=>openForm())">＋新增持股</button></div></div>
 <div class="lock"><span class="muted">管理權限：<b id="ls">🔒 已鎖定</b></span><button id="lb" class="btn" onclick="toggleLock()">解鎖管理</button></div>
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">v7 Compact：保留三層雷達與全部庫存風控；我的持股預設全部收合，收合後只顯示名稱、代號、報酬率，可單檔展開或一鍵全部展開/收合。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
+<div class="notice">v7 Compact Sorted：保留三層雷達與全部庫存風控；持股預設收合，只顯示名稱、代號、報酬率，並依目前報酬率由高到低排序。每次按「顯示最新行情」取得新價格後會立即重新排序；無行情資料的持股排在最下面。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -277,6 +277,16 @@ function toggleAllHoldings(){
 
 function renderHoldings(){
  let hs=H(),map={};holdingCache.forEach(x=>map[x.symbol]=x);
+
+ // 依目前行情計算報酬率後，由高到低排序。
+ // 有即時/收盤價的持股優先依報酬率排序；尚未取得行情的放到最下面。
+ hs=[...hs].sort((a,b)=>{
+   let qa=map[a.symbol], qb=map[b.symbol];
+   let pa=Number(qa?.price||0), pb=Number(qb?.price||0);
+   let ra=(pa>0&&Number(a.cost)>0)?(pa/Number(a.cost)-1):-Infinity;
+   let rb=(pb>0&&Number(b.cost)>0)?(pb/Number(b.cost)-1):-Infinity;
+   return rb-ra;
+ });
 
  hc.innerHTML=hs.map(h=>{
    let q=map[h.symbol],px=Number(q?.price||0),valid=px>0,prev=Number(q?.previousClose||0);
