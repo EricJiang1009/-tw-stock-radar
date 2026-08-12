@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Buffered Live</title>
+<title>台股波段雷達 Full Market Live v4</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -17,19 +17,19 @@
 .modalback{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:18px}.modal{background:var(--card);border:1px solid #314968;border-radius:16px;padding:16px;width:min(430px,100%)}.notice{margin-top:13px;background:#251c10;border:1px solid #6a4b1b;color:#ffe2a4;border-radius:13px;padding:12px;font-size:12px;line-height:1.55}
 @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}.hcards{grid-template-columns:1fr}.metrics,.levels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="app">
-<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果</div></div><div id="status" class="badge">讀取資料源...</div></div>
+<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果</div></div><div id="statusBadge" class="badge">🟡 連線中...</div></div>
 <div class="tabs"><button class="tab active" data-mode="today">09:30 今日 Top 20</button><button class="tab" data-mode="after">盤後 Top 20</button><button class="tab" data-mode="holdings">我的持股</button></div>
 <div class="kpis"><div class="kpi"><small>背景行情</small><b>持續蒐集</b></div><div class="kpi"><small>切換分頁</small><b>不重新掃</b></div><div class="kpi"><small>畫面資料</small><b>手動發布</b></div><div class="kpi"><small>API 保護</small><b>快取＋輪替</b></div></div>
 
 <div id="radar"><div class="sec"><div><h2 id="rt">09:30 今日 Top 20</h2><span class="muted" id="rs">背景蒐集中；按「顯示最新掃描」才更新畫面</span></div><button class="btn green" onclick="publishRadar()">顯示最新掃描</button></div>
 <div class="table"><div class="rrow head"><div>#</div><div>股票</div><div>現價/漲幅</div><div>量比</div><div>距突破</div><div>回踩買點</div><div>突破買點</div><div>不追價</div><div>停損</div><div>目標1</div><div>目標2</div><div>階段</div><div>分數</div></div><div id="rr"></div></div></div>
 
-<div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">背景更新行情；按「顯示最新行情」才更新卡片</span></div><div><button class="btn green" onclick="publishHoldings()">顯示最新行情</button> <button class="btn" onclick="secure(()=>openForm())">＋新增持股</button></div></div>
+<div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">背景完整更新：即時價＋量比＋5/10日線＋技術支撐</span></div><div><button class="btn green" onclick="publishHoldings()">顯示最新行情</button> <button class="btn" onclick="secure(()=>openForm())">＋新增持股</button></div></div>
 <div class="lock"><span class="muted">管理權限：<b id="ls">🔒 已鎖定</b></span><button id="lb" class="btn" onclick="toggleLock()">解鎖管理</button></div>
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">新版不會因為切換分頁就重新呼叫整批 API。Render 後端會在背景輪替蒐集候選股；你按「顯示最新掃描／行情」時只是把已經蒐集好的快取發布到畫面，所以穩定度會高很多。</div></div>
+<div class="notice">v4 全市場版：持股優先完整分析；雷達候選池改為上市＋上櫃官方清單並在背景分批輪掃。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -40,23 +40,68 @@ const DH=[
 let mode="today",unlocked=false,pending=null,editing=null;
 let radarCache={today:[],after:[]},holdingCache=[];
 
-function H(){try{let x=JSON.parse(localStorage.getItem("holdingsBuffered"));if(Array.isArray(x))return x}catch(e){}localStorage.setItem("holdingsBuffered",JSON.stringify(DH));return [...DH]}
-function saveAll(x){localStorage.setItem("holdingsBuffered",JSON.stringify(x))}
+function H(){try{let x=JSON.parse(localStorage.getItem("holdingsBufferedV3"));if(Array.isArray(x))return x}catch(e){}localStorage.setItem("holdingsBufferedV3",JSON.stringify(DH));return [...DH]}
+function saveAll(x){localStorage.setItem("holdingsBufferedV3",JSON.stringify(x))}
 function fmtTime(ts){if(!ts)return"尚未發布";return new Date(ts*1000).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
-async function getStatus(){try{let x=await fetch("/api/status").then(r=>r.json());status.textContent=(x.live?"LIVE｜Fugle":"DEMO")+"｜背景 "+x.collector}catch(e){status.textContent="後端連線失敗"}}
-setInterval(getStatus,30000);getStatus();
+
+async function fetchJSONWithTimeout(url,options={},ms=8000){
+ const ctrl=new AbortController();
+ const timer=setTimeout(()=>ctrl.abort(),ms);
+ try{
+   const r=await fetch(url,{...options,signal:ctrl.signal});
+   if(!r.ok) throw new Error("HTTP "+r.status);
+   return await r.json();
+ }finally{
+   clearTimeout(timer);
+ }
+}
+
+async function getStatus(){
+ const badge=document.getElementById("statusBadge");
+ badge.textContent="🟡 連線中...";
+ try{
+   let x=await fetchJSONWithTimeout("/api/status",{},8000);
+   if(!x.live){
+     badge.textContent="🔴 DEMO｜未設定 API";
+   }else if(x.collector==="collecting"){
+     badge.textContent="🟡 LIVE｜Fugle｜背景更新中｜全市場 "+(x.universeCount||"-")+" 檔";
+   }else if(x.collector==="ready"){
+     badge.textContent="🟢 LIVE｜Fugle｜背景正常｜全市場 "+(x.universeCount||"-")+" 檔";
+   }else{
+     badge.textContent="🟡 LIVE｜Fugle｜啟動中";
+   }
+ }catch(e){
+   badge.textContent="🔴 API 暫時異常｜沿用快取";
+ }
+}
+setInterval(getStatus,30000);
+getStatus();
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");mode=b.dataset.mode;renderMode()});
 
 async function loadPublishedRadar(){
  let ep=mode==="after"?"/api/radar/afterhours":"/api/radar/intraday";
- try{let x=await fetch(ep).then(r=>r.json());radarCache[mode==="after"?"after":"today"]=x.rows||[];renderRadar();rs.textContent="目前顯示發布於 "+fmtTime(x.updatedAt)}catch(e){}
+ try{
+   let x=await fetchJSONWithTimeout(ep,{},8000);
+   radarCache[mode==="after"?"after":"today"]=x.rows||[];
+   renderRadar();
+   rs.textContent="目前顯示發布於 "+fmtTime(x.updatedAt);
+ }catch(e){}
 }
+
 async function publishRadar(){
  rs.textContent="取得背景最新快取...";
  let m=mode==="after"?"after":"today";
- try{let x=await fetch("/api/radar/publish/"+m,{method:"POST"}).then(r=>r.json());radarCache[m]=x.rows||[];renderRadar();rs.textContent="已更新顯示｜"+fmtTime(x.updatedAt)+"｜"+radarCache[m].length+" 檔"}catch(e){rs.textContent="更新失敗，保留原畫面"}
+ try{
+   let x=await fetchJSONWithTimeout("/api/radar/publish/"+m,{method:"POST"},8000);
+   radarCache[m]=x.rows||[];
+   renderRadar();
+   rs.textContent="已更新顯示｜"+fmtTime(x.updatedAt)+"｜"+radarCache[m].length+" 檔";
+ }catch(e){
+   rs.textContent="更新失敗，保留原畫面";
+ }
 }
+
 function renderRadar(){
  let data=radarCache[mode==="after"?"after":"today"]||[];
  rr.innerHTML=data.length?data.map((r,i)=>`<div class="rrow"><div class="gold">${i+1}</div><div class="stock"><b>${r.name}</b><small>${r.symbol}</small></div><div><b>${r.price??"-"}</b><small class="${(r.changePercent||0)>=0?'r':'g'}">${r.changePercent??"-"}%</small></div><div class="g">${r.volRatio??"-"}×</div><div>${r.breakoutDistance??"-"}%</div><div class="g">${r.pullback??"-"}</div><div class="o">${r.breakout??"-"}</div><div class="r">${r.noChase??"-"}</div><div class="r">${r.stop??"-"}</div><div>${r.target1??"-"}</div><div>${r.target2??"-"}</div><div>${r.stage??"-"}</div><div class="gold">${r.score??"-"}</div></div>`).join(""):`<div style="padding:24px;color:#91a6c2">背景正在蒐集。按「顯示最新掃描」後才會更新這裡。</div>`;
@@ -64,16 +109,29 @@ function renderRadar(){
 
 async function registerHoldings(){
  let syms=H().map(x=>x.symbol).join(",");
- try{await fetch("/api/holdings/register?symbols="+encodeURIComponent(syms),{method:"POST"})}catch(e){}
+ try{
+   await fetchJSONWithTimeout("/api/holdings/register?symbols="+encodeURIComponent(syms),{method:"POST"},8000);
+ }catch(e){}
 }
 registerHoldings();
 
 async function loadPublishedHoldings(){
- try{let x=await fetch("/api/holdings/published").then(r=>r.json());holdingCache=x.rows||[];renderHoldings();}catch(e){}
+ try{
+   let x=await fetchJSONWithTimeout("/api/holdings/published",{},8000);
+   holdingCache=x.rows||[];
+   renderHoldings();
+ }catch(e){}
 }
+
 async function publishHoldings(){
  let syms=H().map(x=>x.symbol).join(",");
- try{let x=await fetch("/api/holdings/publish?symbols="+encodeURIComponent(syms),{method:"POST"}).then(r=>r.json());holdingCache=x.rows||[];renderHoldings();}catch(e){alert("取得最新持股快取失敗，保留原畫面")}
+ try{
+   let x=await fetchJSONWithTimeout("/api/holdings/publish?symbols="+encodeURIComponent(syms),{method:"POST"},8000);
+   holdingCache=x.rows||[];
+   renderHoldings();
+ }catch(e){
+   alert("取得最新持股快取失敗，保留原畫面");
+ }
 }
 
 function holdingNote(h,q){
@@ -81,26 +139,73 @@ function holdingNote(h,q){
  let support=Number(q?.support||0), ma5=Number(q?.ma5||0), ma10=Number(q?.ma10||0), vr=Number(q?.volRatio||0), score=Number(q?.score||0);
  let trendOK=px && ((ma5&&px>=ma5)||(ma10&&px>=ma10)||score>=55);
  let extended=(support&&support<stop5)?support:stop5;
- let stopNote=trendOK && extended<stop5 ? `基本停損 ${stop5.toFixed(2)}；若量價/趨勢未破壞，可觀察至技術支撐 ${extended.toFixed(2)} 再停損。` : `基本停損 ${stop5.toFixed(2)}（成本 -5%）。`;
+
+ let stopNote=trendOK && extended<stop5
+   ? `基本停損 ${stop5.toFixed(2)}；若量價/趨勢未破壞，可觀察至技術支撐 ${extended.toFixed(2)} 再停損。`
+   : `基本停損 ${stop5.toFixed(2)}（成本 -5%）。`;
+
  let tpNote="";
  if(px>=take15){
-   if(vr>=1.2 && trendOK) tpNote=`已達 +15% 停利 ${take15.toFixed(2)}；量價仍強，可改移動停利，參考現價回落 5% 或跌破 5 日線。`;
-   else tpNote=`已達 +15% 停利 ${take15.toFixed(2)}；目前未見明顯續強條件，可優先分批停利。`;
+   if(vr>=1.2 && trendOK)
+     tpNote=`已達 +15% 停利 ${take15.toFixed(2)}；量價仍強，可改移動停利，參考現價回落 5% 或跌破 5 日線。`;
+   else
+     tpNote=`已達 +15% 停利 ${take15.toFixed(2)}；目前未見明顯續強條件，可優先分批停利。`;
  }else{
    tpNote=`基本停利 ${take15.toFixed(2)}（成本 +15%）。`;
  }
+
  return stopNote+" "+tpNote+" ※基本面資料尚未接入，續抱/移動停利目前依量價與技術面判斷。";
 }
+
 function renderHoldings(){
  let hs=H(),map={};holdingCache.forEach(x=>map[x.symbol]=x);
- hc.innerHTML=hs.map(h=>{let q=map[h.symbol],px=Number(q?.price||0),valid=px>0,prev=Number(q?.previousClose||0),pct=valid?((px/h.cost)-1)*100:null,pnl=valid?(px-h.cost)*h.shares:null,day=valid&&prev?(px/prev-1)*100:null,stop5=h.cost*.95,take15=h.cost*1.15;
- return `<div class="hc"><div class="ht"><div class="stock"><b>${h.name}</b><small>${h.symbol} · ${h.shares}股</small></div><span class="gold">${valid?px.toFixed(2):"等待背景行情"}</span></div>
- <div class="metrics"><div class="m"><small>持股成本</small><b>${Number(h.cost).toFixed(2)}</b></div><div class="m"><small>即時/收盤</small><b>${valid?px.toFixed(2):"-"}</b></div><div class="m"><small>報酬率</small><b>${pct===null?"-":pct.toFixed(2)+"%"}</b></div><div class="m"><small>今日漲跌</small><b>${day===null?"-":day.toFixed(2)+"%"}</b></div><div class="m"><small>未實現損益</small><b>${pnl===null?"-":Math.round(pnl).toLocaleString()}</b></div><div class="m"><small>量比</small><b>${q?.volRatio??"-"}</b></div></div>
- <div class="levels"><div class="lv"><small>固定停損 -5%</small><b class="r">${stop5.toFixed(2)}</b></div><div class="lv"><small>固定停利 +15%</small><b class="g">${take15.toFixed(2)}</b></div><div class="lv"><small>技術支撐</small><b>${q?.support??"-"}</b></div><div class="lv"><small>5日線</small><b>${q?.ma5??"-"}</b></div></div>
- <div class="note">${q?holdingNote(h,q):"背景尚未取得這檔行情；不會用成本假裝現價。"}</div>
- <div class="acts"><button class="btn" onclick="secure(()=>openForm('${h.symbol}'))">編輯</button><button class="btn red" onclick="secure(()=>delH('${h.symbol}'))">刪除</button></div></div>`}).join("");
+
+ hc.innerHTML=hs.map(h=>{
+   let q=map[h.symbol],px=Number(q?.price||0),valid=px>0,prev=Number(q?.previousClose||0);
+   let pct=valid?((px/h.cost)-1)*100:null;
+   let pnl=valid?(px-h.cost)*h.shares:null;
+   let day=valid&&prev?(px/prev-1)*100:null;
+   let stop5=h.cost*.95,take15=h.cost*1.15;
+   let analysisReady=!!q?.analysisReady;
+
+   return `<div class="hc">
+   <div class="ht"><div class="stock"><b>${h.name}</b><small>${h.symbol} · ${h.shares}股</small></div><span class="gold">${valid?px.toFixed(2):"等待背景行情"}</span></div>
+   <div class="metrics">
+     <div class="m"><small>持股成本</small><b>${Number(h.cost).toFixed(2)}</b></div>
+     <div class="m"><small>即時/收盤</small><b>${valid?px.toFixed(2):"-"}</b></div>
+     <div class="m"><small>報酬率</small><b>${pct===null?"-":pct.toFixed(2)+"%"}</b></div>
+     <div class="m"><small>今日漲跌</small><b>${day===null?"-":day.toFixed(2)+"%"}</b></div>
+     <div class="m"><small>未實現損益</small><b>${pnl===null?"-":Math.round(pnl).toLocaleString()}</b></div>
+     <div class="m"><small>量比</small><b>${q?.volRatio??"-"}</b></div>
+   </div>
+   <div class="levels">
+     <div class="lv"><small>固定停損 -5%</small><b class="r">${stop5.toFixed(2)}</b></div>
+     <div class="lv"><small>固定停利 +15%</small><b class="g">${take15.toFixed(2)}</b></div>
+     <div class="lv"><small>技術支撐</small><b>${q?.support??"-"}</b></div>
+     <div class="lv"><small>5日線</small><b>${q?.ma5??"-"}</b></div>
+     <div class="lv"><small>10日線</small><b>${q?.ma10??"-"}</b></div>
+     <div class="lv"><small>分析狀態</small><b>${analysisReady?"已完成":"背景補資料中"}</b></div>
+   </div>
+   <div class="note">${q?holdingNote(h,q):"背景尚未取得這檔行情；不會用成本假裝現價。"}</div>
+   <div class="acts"><button class="btn" onclick="secure(()=>openForm('${h.symbol}'))">編輯</button><button class="btn red" onclick="secure(()=>delH('${h.symbol}'))">刪除</button></div>
+   </div>`;
+ }).join("");
 }
-function renderMode(){let hh=mode==="holdings";radar.style.display=hh?"none":"block";holdings.style.display=hh?"block":"none";if(hh){renderHoldings()}else{rt.textContent=mode==="after"?"盤後 Top 20":"09:30 今日 Top 20";renderRadar();rs.textContent="切換分頁不會重新掃描｜按「顯示最新掃描」才更新"}updateLock()}
+
+function renderMode(){
+ let hh=mode==="holdings";
+ radar.style.display=hh?"none":"block";
+ holdings.style.display=hh?"block":"none";
+
+ if(hh){
+   renderHoldings();
+ }else{
+   rt.textContent=mode==="after"?"盤後 Top 20":"09:30 今日 Top 20";
+   renderRadar();
+   rs.textContent="切換分頁不會重新掃描｜按「顯示最新掃描」才更新";
+ }
+ updateLock();
+}
 
 function openForm(s=null){editing=s;let h=H().find(x=>x.symbol===s);form.style.display="block";sym.value=h?.symbol||"";nm.value=h?.name||"";sh.value=h?.shares||"";cost.value=h?.cost||""}
 function closeForm(){form.style.display="none";editing=null}
@@ -108,12 +213,15 @@ function saveH(){let h={symbol:sym.value.trim(),name:nm.value.trim(),shares:+sh.
 function delH(s){if(confirm("確定刪除？")){saveAll(H().filter(x=>x.symbol!==s));renderHoldings()}}
 
 async function hp(p){let d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(p));return[...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("")}
-function hasPin(){return!!localStorage.getItem("pinBuffered")}function updateLock(){if(!ls)return;ls.textContent=unlocked?"🔓 已解鎖":"🔒 已鎖定";lb.textContent=unlocked?"鎖定管理":hasPin()?"解鎖管理":"設定管理 PIN"}
+function hasPin(){return!!localStorage.getItem("pinBufferedV3")}
+function updateLock(){if(!ls)return;ls.textContent=unlocked?"🔓 已解鎖":"🔒 已鎖定";lb.textContent=unlocked?"鎖定管理":hasPin()?"解鎖管理":"設定管理 PIN"}
 function secure(fn){if(unlocked){fn();return}pending=fn;openPin(hasPin()?"unlock":"create")}
 function openPin(m){pb.style.display="flex";p1.value="";p2.value="";p1.dataset.mode=m;p2.style.display=m==="create"?"block":"none";pt.textContent=m==="create"?"設定管理 PIN":"解鎖管理"}
 function closePin(){pb.style.display="none";pending=null}
-async function submitPin(){let p=p1.value.trim(),m=p1.dataset.mode;if(p.length<4){alert("至少4碼");return}if(m==="create"){if(p!==p2.value.trim()){alert("兩次不一致");return}localStorage.setItem("pinBuffered",await hp(p));unlocked=true}else{if(await hp(p)!==localStorage.getItem("pinBuffered")){alert("PIN錯誤");return}unlocked=true}pb.style.display="none";updateLock();let f=pending;pending=null;if(f)f()}
+async function submitPin(){let p=p1.value.trim(),m=p1.dataset.mode;if(p.length<4){alert("至少4碼");return}if(m==="create"){if(p!==p2.value.trim()){alert("兩次不一致");return}localStorage.setItem("pinBufferedV3",await hp(p));unlocked=true}else{if(await hp(p)!==localStorage.getItem("pinBufferedV3")){alert("PIN錯誤");return}unlocked=true}pb.style.display="none";updateLock();let f=pending;pending=null;if(f)f()}
 function toggleLock(){if(unlocked){unlocked=false;closeForm();updateLock()}else openPin(hasPin()?"unlock":"create")}
 
-loadPublishedRadar();loadPublishedHoldings();renderMode();
+loadPublishedRadar();
+loadPublishedHoldings();
+renderMode();
 </script></body></html>
