@@ -62,6 +62,14 @@ COLLECT_INTERVAL_MARKET = 60
 COLLECT_INTERVAL_AFTER = 300
 COLLECT_INTERVAL_OFF = 900
 CHUNK_SIZE = 18
+
+# V7 three-layer radar
+MARGIN_CAUTION = 20.0
+MARGIN_EXCLUDE = 30.0
+ENRICH_TTL = 21600
+fundamental_cache: dict[str, dict] = {}
+chip_cache: dict[str, dict] = {}
+enrich_updated_at = 0.0
 UNIVERSE_REFRESH_TTL = 21600
 UNIVERSE_URLS = [
     "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
@@ -249,6 +257,11 @@ def calc_technical(price: float, payload: Any) -> dict:
             "avg5vol": 0,
             "avg20vol": 0,
             "atrLike": price * .02,
+            "ma20": price * .94,
+            "goldenCross": False,
+            "bullishMA": False,
+            "bias5": 0,
+            "bias20": 0,
         }
 
     ma5 = mean(closes[-5:]) if len(closes) >= 5 else closes[-1]
@@ -260,16 +273,81 @@ def calc_technical(price: float, payload: Any) -> dict:
     avg5 = mean(vols[-5:]) if len(vols) >= 5 else (mean(vols) if vols else 0)
     avg20 = mean(vols[-20:]) if len(vols) >= 20 else (mean(vols) if vols else 0)
 
+    ma20 = mean(closes[-20:]) if len(closes) >= 20 else ma10
+    prev5 = mean(closes[-6:-1]) if len(closes) >= 6 else ma5
+    prev10 = mean(closes[-11:-1]) if len(closes) >= 11 else ma10
+    golden_cross = (ma5 > ma10 and prev5 <= prev10)
+    bullish_ma = ma5 > ma10 > ma20
+    bias5 = (price / ma5 - 1) * 100 if ma5 else 0
+    bias20 = (price / ma20 - 1) * 100 if ma20 else 0
+
     return {
         "ma5": ma5,
         "ma10": ma10,
+        "ma20": ma20,
         "high20": high20,
         "support": support,
         "avg5vol": avg5,
         "avg20vol": avg20,
         "atrLike": atr_like,
+        "goldenCross": golden_cross,
+        "bullishMA": bullish_ma,
+        "bias5": bias5,
+        "bias20": bias20,
     }
 
+
+
+def score_technical(change, vol_ratio, dist, tech):
+    s = 0.0
+    s += min(max(vol_ratio, 0) / 3, 1) * 25
+    s += 20 if dist <= .5 else 16 if dist <= 1.5 else 8 if dist <= 3 else 0
+    s += 14 if 1 <= change <= 6 else 9 if 6 < change <= 9 else 3 if change > 9 else 0
+    if tech.get("goldenCross"): s += 16
+    elif tech.get("bullishMA"): s += 10
+    b = abs(float(tech.get("bias5", 0) or 0))
+    if b <= 3: s += 15
+    elif b <= 6: s += 10
+    elif b <= 10: s += 4
+    else: s -= 8
+    if float(tech.get("bias20", 0) or 0) > 15: s -= 8
+    return round(max(0, min(100, s)), 1)
+
+
+def score_fundamental(f):
+    if not f or not f.get("available"):
+        return 50.0
+    s = 50.0
+    eps = f.get("eps")
+    pe = f.get("pe")
+    yoy = f.get("revenueYoY")
+    profitable = f.get("profitable")
+    if profitable is True: s += 15
+    elif profitable is False: s -= 25
+    if eps is not None:
+        s += 10 if eps > 0 else -15
+    if yoy is not None:
+        s += 12 if yoy >= 10 else 6 if yoy > 0 else -10
+    if pe is not None and pe > 0:
+        s += 10 if 8 <= pe <= 25 else 5 if pe <= 40 else -10
+    return round(max(0, min(100, s)), 1)
+
+
+def score_chip(c):
+    if not c or not c.get("available"):
+        return 50.0
+    s = 55.0
+    mr = c.get("marginRatio")
+    inst = c.get("institutionNet")
+    if mr is not None:
+        s += 15 if mr < 10 else 5 if mr < 20 else -15 if mr < 30 else -40
+    if inst is not None:
+        s += 20 if inst > 0 else -15 if inst < 0 else 0
+    return round(max(0, min(100, s)), 1)
+
+
+def enriched(symbol):
+    return fundamental_cache.get(symbol, {}), chip_cache.get(symbol, {})
 
 def build_analysis(q: dict, tech: dict) -> dict | None:
     price = q.get("price")
@@ -300,13 +378,17 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
     else:
         stage = "觀察"
 
-    score = min(
-        100,
-        min(vol_ratio / 3, 1) * 35
-        + (25 if dist <= .5 else 20 if dist <= 1.5 else 10 if dist <= 3 else 0)
-        + (20 if 1 <= change <= 6 else 13 if 6 < change <= 9 else 6 if change > 9 else 0)
-        + (8 if price < 1000 else 0)
-    )
+    fundamental, chip = enriched(q["symbol"])
+    technical_score = score_technical(change, vol_ratio, dist, tech)
+    fundamental_score = score_fundamental(fundamental)
+    chip_score = score_chip(chip)
+
+    # 技術 50%、基本面 25%、籌碼 25%。資料不足採中性 50，不偽造數字。
+    score = round(technical_score * .50 + fundamental_score * .25 + chip_score * .25, 1)
+
+    # 融資使用率 >=30% 原則上不進 Top20；在資料列保留旗標供過濾與顯示。
+    margin_ratio = chip.get("marginRatio")
+    margin_excluded = margin_ratio is not None and margin_ratio >= MARGIN_EXCLUDE
 
     ar = max(tech.get("atrLike", price * .02), price * .012)
     pullback = max(tech.get("ma5", price * .98), price - ar * .65)
@@ -335,7 +417,24 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         "target2": round(t2, 2),
         "ma5": round(tech.get("ma5", 0), 2),
         "ma10": round(tech.get("ma10", 0), 2),
+        "ma20": round(tech.get("ma20", 0), 2),
         "support": round(tech.get("support", 0), 2),
+        "goldenCross": bool(tech.get("goldenCross")),
+        "bullishMA": bool(tech.get("bullishMA")),
+        "bias5": round(float(tech.get("bias5", 0) or 0), 2),
+        "bias20": round(float(tech.get("bias20", 0) or 0), 2),
+        "technicalScore": technical_score,
+        "fundamentalScore": fundamental_score,
+        "chipScore": chip_score,
+        "eps": fundamental.get("eps"),
+        "pe": fundamental.get("pe"),
+        "revenueYoY": fundamental.get("revenueYoY"),
+        "profitable": fundamental.get("profitable"),
+        "marginRatio": margin_ratio,
+        "institutionNet": chip.get("institutionNet"),
+        "fundamentalAvailable": bool(fundamental.get("available")),
+        "chipAvailable": bool(chip.get("available")),
+        "marginExcluded": margin_excluded,
         "updatedAt": q.get("updatedAt", time.time()),
     }
 
@@ -365,7 +464,7 @@ def rebuild_working():
     global working_today, working_after
     rows = [
         x for x in analysis_cache.values()
-        if x and (x["price"] < 1000 or x["score"] >= 93)
+        if x and not x.get("marginExcluded") and (x["price"] < 1000 or x["score"] >= 93)
     ]
     rows.sort(key=lambda x: x["score"], reverse=True)
     working_today = rows[:20]
@@ -403,6 +502,7 @@ async def collect_cycle():
 
     async with scan_lock:
         collector_status = "collecting"
+        await refresh_enrichment()
 
         # 1) 持股優先完整更新
         await collect_holdings_full()
@@ -433,6 +533,53 @@ async def collect_cycle():
         last_collect_at = time.time()
         collector_status = "ready"
 
+
+
+async def refresh_enrichment():
+    """Best-effort official public-data enrichment.
+    Missing/changed upstream fields remain unavailable rather than being fabricated.
+    """
+    global enrich_updated_at, fundamental_cache, chip_cache
+    if enrich_updated_at and time.time() - enrich_updated_at < ENRICH_TTL:
+        return
+
+    urls = [
+        ("https://openapi.twse.com.tw/v1/opendata/t187ap14_L", "fund"),
+        ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O", "fund"),
+        ("https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX", "valuation"),
+    ]
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        for url, kind in urls:
+            try:
+                r = await client.get(url)
+                if not r.is_success: continue
+                data = r.json()
+                if not isinstance(data, list): continue
+                for row in data:
+                    if not isinstance(row, dict): continue
+                    s = extract_symbol(row)
+                    if not s: continue
+                    f = fundamental_cache.setdefault(s, {})
+                    # Flexible field-name matching because official schemas differ by market.
+                    for k,v in row.items():
+                        key=str(k)
+                        try:
+                            vv=float(str(v).replace(",","").replace("%",""))
+                        except Exception:
+                            continue
+                        if "每股盈餘" in key or key.upper()=="EPS": f["eps"]=vv
+                        if "本益比" in key or key.upper()=="PE": f["pe"]=vv
+                        if ("增減" in key or "年增" in key) and "%" in key: f["revenueYoY"]=vv
+                        if "淨利" in key or "淨損" in key:
+                            f["profitable"]=vv > 0
+                    if any(k in f for k in ("eps","pe","revenueYoY","profitable")):
+                        f["available"]=True
+            except Exception:
+                pass
+
+    # Chip/margin data schemas vary substantially across TWSE/TPEx.
+    # Leave unavailable until a verified value is obtained; UI explicitly shows 資料不足.
+    enrich_updated_at=time.time()
 
 async def collector_loop():
     await asyncio.sleep(2)
