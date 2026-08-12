@@ -1,11 +1,16 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Dual Source Radar v8</title>
+<title>台股波段雷達 Dual Source Radar v8.1</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
 .app{max-width:1250px;margin:auto;padding:18px 14px 44px}.top{display:flex;justify-content:space-between;gap:10px}.top h1{margin:0 0 4px}.muted{color:var(--muted);font-size:12px}.badge{background:#10253e;border:1px solid #2d4a6e;border-radius:999px;padding:8px 10px;height:max-content;font-size:12px}
+.sourceStatus{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.sourceLine{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.sourceBadge{background:#10253e;border:1px solid #2d4a6e;border-radius:999px;padding:7px 9px;font-size:11px;white-space:nowrap}
+.sourceMeta{font-size:10px;color:var(--muted);text-align:right;max-width:360px}
+
 .tabs{display:flex;gap:8px;overflow:auto;margin:18px 0}.tab,.btn{border:1px solid #2a4263;background:#13233a;color:white;padding:9px 12px;border-radius:10px;white-space:nowrap}.tab.active{background:#08755f}.btn.green{background:#0f5c49}.btn.red{background:#4b2028}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px}.kpi small{color:var(--muted)}.kpi b{display:block;margin-top:4px}
 .sec{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:17px 0 10px}.sec h2{margin:0;font-size:18px}.table{overflow:auto;border:1px solid var(--line);border-radius:15px;background:#0d1828}
@@ -30,7 +35,14 @@
 
 @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}.hcards{grid-template-columns:1fr}.metrics,.levels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="app">
-<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果</div></div><div id="statusBadge" class="badge">🟡 連線中...</div></div>
+<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果</div></div>
+<div class="sourceStatus">
+  <div class="sourceLine">
+    <div id="fugleBadge" class="sourceBadge">🟡 Fugle 連線中...</div>
+    <div id="finmindBadge" class="sourceBadge">🟡 FinMind 檢查中...</div>
+  </div>
+  <div id="sourceMeta" class="sourceMeta">讀取資料源狀態...</div>
+</div></div>
 <div class="tabs"><button class="tab active" data-mode="today">09:30 今日 Top 20</button><button class="tab" data-mode="after">盤後 Top 20</button><button class="tab" data-mode="holdings">我的持股</button></div>
 <div class="kpis"><div class="kpi"><small>背景行情</small><b>持續蒐集</b></div><div class="kpi"><small>切換分頁</small><b>不重新掃</b></div><div class="kpi"><small>畫面資料</small><b>手動發布</b></div><div class="kpi"><small>API 保護</small><b>快取＋輪替</b></div></div>
 
@@ -42,7 +54,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V8 雙資料源：Fugle 負責即時行情，FinMind 補基本面/籌碼資料；保留三層雷達、黃金交叉、乖離、PE/EPS、融資與法人評分。持股維持預設收合與報酬率排序，展開後新增「持有總成本」與「目前市值」。FinMind 未設定 Token 時會自動退回原本資料源，不會填假資料。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
+<div class="notice">V8.1 雙資料源狀態版：Fugle 負責即時行情，FinMind 補基本面/籌碼資料。右上角會分開顯示 Fugle 與 FinMind 的正常、更新中、限流或失敗狀態，並顯示 FinMind 最後成功更新時間。原有三層雷達、持股排序/收合、總成本、市值、最終防守與移動停利全部保留。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -72,21 +84,53 @@ async function fetchJSONWithTimeout(url,options={},ms=8000){
 }
 
 async function getStatus(){
- const badge=document.getElementById("statusBadge");
- badge.textContent="🟡 連線中...";
+ const fugle=document.getElementById("fugleBadge");
+ const finmind=document.getElementById("finmindBadge");
+ const meta=document.getElementById("sourceMeta");
+
+ fugle.textContent="🟡 Fugle 連線中...";
+ finmind.textContent="🟡 FinMind 檢查中...";
+
  try{
    let x=await fetchJSONWithTimeout("/api/status",{},8000);
+
+   // Fugle
    if(!x.live){
-     badge.textContent="🔴 DEMO｜未設定 API";
+     fugle.textContent="🔴 Fugle 未設定";
    }else if(x.collector==="collecting"){
-     badge.textContent="🟡 LIVE｜Fugle｜背景更新中｜全市場 "+(x.universeCount||"-")+" 檔";
+     fugle.textContent="🟡 Fugle 背景更新中";
    }else if(x.collector==="ready"){
-     badge.textContent="🟢 LIVE｜Fugle｜背景正常｜全市場 "+(x.universeCount||"-")+" 檔";
+     fugle.textContent="🟢 Fugle 正常";
    }else{
-     badge.textContent="🟡 LIVE｜Fugle｜啟動中";
+     fugle.textContent="🟡 Fugle 啟動中";
    }
+
+   // FinMind
+   if(!x.finmind){
+     finmind.textContent="🔴 FinMind 未設定 Token";
+   }else if(x.finmindStatus==="updating" || x.finmindStatus==="starting"){
+     finmind.textContent="🟡 FinMind 補充資料中";
+   }else if(x.finmindStatus==="ready"){
+     finmind.textContent="🟢 FinMind 正常";
+   }else if(x.finmindStatus==="rate_limited"){
+     finmind.textContent="🟠 FinMind 已達速率限制";
+   }else if(x.finmindStatus==="error"){
+     finmind.textContent="🔴 FinMind 讀取失敗";
+   }else{
+     finmind.textContent="🟡 FinMind 等待更新";
+   }
+
+   let fmTime=x.finmindLastSuccessAt?fmtTime(x.finmindLastSuccessAt):"尚未成功";
+   let text="全市場 "+(x.universeCount||"-")+" 檔｜FinMind 最後成功："+fmTime;
+   if(x.finmindLastError){
+     text+="｜錯誤："+x.finmindLastError;
+   }
+   meta.textContent=text;
+
  }catch(e){
-   badge.textContent="🔴 API 暫時異常｜沿用快取";
+   fugle.textContent="🔴 後端狀態讀取失敗";
+   finmind.textContent="🔴 無法確認 FinMind";
+   meta.textContent="沿用目前畫面快取";
  }
 }
 setInterval(getStatus,30000);

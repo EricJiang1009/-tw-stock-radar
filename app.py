@@ -18,6 +18,10 @@ API_KEY = os.getenv("FUGLE_API_KEY", "").strip()
 FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "").strip()
 FINMIND_BASE = "https://api.finmindtrade.com/api/v4/data"
 FINMIND_ENABLED = bool(FINMIND_TOKEN)
+FINMIND_STATUS = "disabled" if not FINMIND_ENABLED else "starting"
+FINMIND_LAST_ATTEMPT_AT = 0.0
+FINMIND_LAST_SUCCESS_AT = 0.0
+FINMIND_LAST_ERROR = ""
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -541,19 +545,47 @@ async def collect_cycle():
 
 
 async def finmind_get(dataset: str, data_id: str | None = None, start_date: str | None = None, end_date: str | None = None):
+    global FINMIND_STATUS, FINMIND_LAST_ATTEMPT_AT, FINMIND_LAST_SUCCESS_AT, FINMIND_LAST_ERROR
+
     if not FINMIND_ENABLED:
+        FINMIND_STATUS = "disabled"
         return []
+
+    FINMIND_STATUS = "updating"
+    FINMIND_LAST_ATTEMPT_AT = time.time()
+
     params={"dataset":dataset,"token":FINMIND_TOKEN}
     if data_id: params["data_id"]=data_id
     if start_date: params["start_date"]=start_date
     if end_date: params["end_date"]=end_date
-    async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
-        r=await client.get(FINMIND_BASE, params=params)
-        if r.status_code in (402,429):
-            return []
-        r.raise_for_status()
-        payload=r.json()
-        return payload.get("data",[]) if isinstance(payload,dict) else []
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
+            r=await client.get(FINMIND_BASE, params=params)
+
+            if r.status_code == 429:
+                FINMIND_STATUS = "rate_limited"
+                FINMIND_LAST_ERROR = "FinMind API rate limit (429)"
+                return []
+
+            if r.status_code == 402:
+                FINMIND_STATUS = "error"
+                FINMIND_LAST_ERROR = "FinMind plan/permission rejected (402)"
+                return []
+
+            r.raise_for_status()
+            payload=r.json()
+            rows = payload.get("data",[]) if isinstance(payload,dict) else []
+
+            FINMIND_STATUS = "ready"
+            FINMIND_LAST_SUCCESS_AT = time.time()
+            FINMIND_LAST_ERROR = ""
+            return rows
+
+    except Exception as e:
+        FINMIND_STATUS = "error"
+        FINMIND_LAST_ERROR = str(e)[:180]
+        raise
 
 
 def fm_float(v):
@@ -651,8 +683,11 @@ async def enrich_finmind_symbol(symbol: str):
 
 
 async def refresh_finmind_priority():
+    global FINMIND_STATUS
     if not FINMIND_ENABLED:
+        FINMIND_STATUS = "disabled"
         return
+    FINMIND_STATUS = "updating"
     # Enrich holdings first, then strongest currently-known candidates.
     symbols=[]
     for h in holdings:
@@ -665,6 +700,9 @@ async def refresh_finmind_priority():
     # Rate-limit friendly: only a few symbols per collector pass.
     for s in symbols[:4]:
         await enrich_finmind_symbol(s)
+
+    if FINMIND_STATUS == "updating":
+        FINMIND_STATUS = "ready"
 
 
 async def refresh_enrichment():
@@ -756,6 +794,10 @@ async def status():
         "workingAfterCount": len(working_after),
         "lastCollectAt": last_collect_at,
         "finmind": FINMIND_ENABLED,
+        "finmindStatus": FINMIND_STATUS,
+        "finmindLastAttemptAt": FINMIND_LAST_ATTEMPT_AT,
+        "finmindLastSuccessAt": FINMIND_LAST_SUCCESS_AT,
+        "finmindLastError": FINMIND_LAST_ERROR,
         "lastError": last_error,
         "universeCount": len(current_universe()),
         "universeSource": universe_source,
