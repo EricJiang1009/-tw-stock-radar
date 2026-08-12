@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Dual Source Radar v8.5</title>
+<title>台股波段雷達 Dual Source Radar v8.6</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -14,7 +14,21 @@
 .tabs{display:flex;gap:8px;overflow:auto;margin:18px 0}.tab,.btn{border:1px solid #2a4263;background:#13233a;color:white;padding:9px 12px;border-radius:10px;white-space:nowrap}.tab.active{background:#08755f}.btn.green{background:#0f5c49}.btn.red{background:#4b2028}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px}.kpi small{color:var(--muted)}.kpi b{display:block;margin-top:4px}
 .sec{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:17px 0 10px}.sec h2{margin:0;font-size:18px}.table{overflow:auto;border:1px solid var(--line);border-radius:15px;background:#0d1828}
-.rrow{min-width:1450px;display:grid;grid-template-columns:40px 120px 90px 60px 70px 80px 70px 70px 70px 70px 70px 70px 70px 70px 90px 65px;gap:7px;padding:11px;border-bottom:1px solid #223149;align-items:center}.rrow.head{background:#16263e;color:#9fb3ce;font-size:11px}
+.rrow{min-width:850px;display:grid;grid-template-columns:40px 120px 90px 65px 80px 80px 85px 90px 70px;gap:7px;padding:11px;border-bottom:1px solid #223149;align-items:center}.rrow.head{background:#16263e;color:#9fb3ce;font-size:11px}
+.radarItem{border-bottom:1px solid #223149}
+.radarItem .rrow{border-bottom:0}
+.radarMore{display:none;min-width:850px;background:#0a1422;padding:10px 12px 12px 47px}
+.radarMore.open{display:block}
+.radarMoreGrid{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:8px}
+.radarMetric{background:#101c2f;border:1px solid #263751;border-radius:9px;padding:8px}
+.radarMetric small{display:block;color:var(--muted);font-size:10px}
+.radarMetric b{display:block;margin-top:3px;font-size:13px}
+.radarToggle{padding:6px 8px;font-size:11px}
+@media(max-width:760px){
+ .radarMore{padding-left:47px}
+ .radarMoreGrid{grid-template-columns:repeat(2,minmax(120px,1fr))}
+}
+
 .rrow>div:nth-child(1),
 .rrow>div:nth-child(2){
   position:sticky;
@@ -64,14 +78,14 @@
 <div class="kpis"><div class="kpi"><small>背景行情</small><b>持續蒐集</b></div><div class="kpi"><small>切換分頁</small><b>不重新掃</b></div><div class="kpi"><small>畫面資料</small><b>手動發布</b></div><div class="kpi"><small>API 保護</small><b>快取＋輪替</b></div></div>
 
 <div id="radar"><div class="sec"><div><h2 id="rt">09:30 今日 Top 20</h2><span class="muted" id="rs">背景蒐集中；按「顯示最新掃描」才更新畫面</span></div><button class="btn green" onclick="publishRadar()">顯示最新掃描</button></div>
-<div class="table"><div class="rrow head"><div>#</div><div>股票</div><div>現價/漲幅</div><div>量比</div><div>黃金交叉</div><div>5日乖離</div><div>PE</div><div>EPS</div><div>融資%</div><div>技術分</div><div>基本分</div><div>籌碼分</div><div>回踩</div><div>突破</div><div>階段</div><div>綜合</div></div><div id="rr"></div></div></div>
+<div class="table"><div class="rrow head"><div>#</div><div>股票</div><div>現價/漲幅</div><div>量比</div><div>回踩</div><div>突破</div><div>階段</div><div>詳細分析</div><div>狀態</div></div><div id="rr"></div></div></div>
 
 <div id="holdings"><div class="sec"><div><h2>我的持股</h2><span class="muted">預設收合｜依報酬率由高到低排序｜刷新最新行情後自動重排</span></div><div><button class="btn" id="toggleAllBtn" onclick="toggleAllHoldings()">全部展開</button> <button class="btn green" onclick="publishHoldings()">顯示最新行情</button> <button class="btn" onclick="secure(()=>openForm())">＋新增持股</button></div></div>
 <div class="lock"><span class="muted">管理權限：<b id="ls">🔒 已鎖定</b></span><button id="lb" class="btn" onclick="toggleLock()">解鎖管理</button></div>
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V8.5 股票名稱凍結版：今日 Top 20 與盤後 Top 20 水平滑動時，只固定排名與股票名稱/代號；現價/漲幅會跟其他資料一起水平滑動。Fugle＋FinMind 雙背景引擎與原有雷達、持股功能全部保留。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
+<div class="notice">V8.6 雷達收合版：今日 Top 20 與盤後 Top 20 預設隱藏黃金交叉、5日乖離、PE、EPS、融資%、技術分、基本分、籌碼分與綜合分。每檔都有「展開／收合」按鈕，點一下顯示這九項，再點一下立即隱藏。排名與股票名稱仍維持凍結，其他雙資料源與持股功能全部保留。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -83,6 +97,7 @@ let mode="today",unlocked=false,pending=null,editing=null;
 let radarCache={today:[],after:[]},holdingCache=[];
 let collapsedHoldings={};
 let allExpanded=false;
+let radarDetailsOpen={};
 
 function H(){try{let x=JSON.parse(localStorage.getItem("holdingsBufferedV3"));if(Array.isArray(x))return x}catch(e){}localStorage.setItem("holdingsBufferedV3",JSON.stringify(DH));return [...DH]}
 function saveAll(x){localStorage.setItem("holdingsBufferedV3",JSON.stringify(x))}
@@ -177,9 +192,46 @@ async function publishRadar(){
  }
 }
 
+function toggleRadarDetail(key){
+ radarDetailsOpen[key]=!radarDetailsOpen[key];
+ renderRadar();
+}
+
 function renderRadar(){
  let data=radarCache[mode==="after"?"after":"today"]||[];
- rr.innerHTML=data.length?data.map((r,i)=>`<div class="rrow"><div class="gold">${i+1}</div><div class="stock"><b>${r.name}</b><small>${r.symbol}</small></div><div><b>${r.price??"-"}</b><small class="${(r.changePercent||0)>=0?'r':'g'}">${r.changePercent??"-"}%</small></div><div class="g">${r.volRatio??"-"}×</div><div>${r.goldenCross?"🟢 剛交叉":(r.bullishMA?"多頭":"-")}</div><div>${r.bias5??"-"}%</div><div>${r.pe??"資料不足"}</div><div>${r.eps??"資料不足"}</div><div class="${(r.marginRatio??0)>=20?'r':''}">${r.marginRatio==null?"資料不足":r.marginRatio+"%"}</div><div>${r.technicalScore??"-"}</div><div>${r.fundamentalScore??"-"}</div><div>${r.chipScore??"-"}</div><div class="g">${r.pullback??"-"}</div><div class="o">${r.breakout??"-"}</div><div>${r.stage??"-"}</div><div class="gold">${r.score??"-"}</div></div>`).join(""):`<div style="padding:24px;color:#91a6c2">背景正在蒐集。按「顯示最新掃描」後才會更新這裡。</div>`;
+
+ rr.innerHTML=data.length?data.map((r,i)=>{
+   let key=(mode==="after"?"a":"t")+"-"+r.symbol;
+   let open=!!radarDetailsOpen[key];
+
+   return `<div class="radarItem">
+     <div class="rrow">
+       <div class="gold">${i+1}</div>
+       <div class="stock"><b>${r.name}</b><small>${r.symbol}</small></div>
+       <div><b>${r.price??"-"}</b><small class="${(r.changePercent||0)>=0?'r':'g'}">${r.changePercent??"-"}%</small></div>
+       <div class="g">${r.volRatio??"-"}×</div>
+       <div class="g">${r.pullback??"-"}</div>
+       <div class="o">${r.breakout??"-"}</div>
+       <div>${r.stage??"-"}</div>
+       <div><button class="btn radarToggle" onclick="toggleRadarDetail('${key}')">${open?"收合 ▲":"展開 ▼"}</button></div>
+       <div>${r.fundamentalAvailable||r.chipAvailable?"已補資料":"部分資料待補"}</div>
+     </div>
+
+     <div class="radarMore ${open?"open":""}">
+       <div class="radarMoreGrid">
+         <div class="radarMetric"><small>黃金交叉</small><b>${r.goldenCross?"🟢 剛交叉":(r.bullishMA?"多頭排列":"-" )}</b></div>
+         <div class="radarMetric"><small>5日乖離</small><b>${r.bias5==null?"資料不足":r.bias5+"%"}</b></div>
+         <div class="radarMetric"><small>PE 本益比</small><b>${r.pe??"資料不足"}</b></div>
+         <div class="radarMetric"><small>EPS</small><b>${r.eps??"資料不足"}</b></div>
+         <div class="radarMetric"><small>融資%</small><b class="${(r.marginRatio??0)>=20?'r':''}">${r.marginRatio==null?"資料不足":r.marginRatio+"%"}</b></div>
+         <div class="radarMetric"><small>技術分</small><b>${r.technicalScore??"-"}</b></div>
+         <div class="radarMetric"><small>基本分</small><b>${r.fundamentalScore??"-"}</b></div>
+         <div class="radarMetric"><small>籌碼分</small><b>${r.chipScore??"-"}</b></div>
+         <div class="radarMetric"><small>綜合分</small><b class="gold">${r.score??"-"}</b></div>
+       </div>
+     </div>
+   </div>`;
+ }).join(""):`<div style="padding:24px;color:#91a6c2">背景正在蒐集。按「顯示最新掃描」後才會更新這裡。</div>`;
 }
 
 async function registerHoldings(){
