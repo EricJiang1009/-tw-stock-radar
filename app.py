@@ -15,6 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 BASE = "https://api.fugle.tw/marketdata/v1.0/stock"
 API_KEY = os.getenv("FUGLE_API_KEY", "").strip()
+FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "").strip()
+FINMIND_BASE = "https://api.finmindtrade.com/api/v4/data"
+FINMIND_ENABLED = bool(FINMIND_TOKEN)
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -503,6 +506,7 @@ async def collect_cycle():
     async with scan_lock:
         collector_status = "collecting"
         await refresh_enrichment()
+        await refresh_finmind_priority()
 
         # 1) 持股優先完整更新
         await collect_holdings_full()
@@ -533,6 +537,134 @@ async def collect_cycle():
         last_collect_at = time.time()
         collector_status = "ready"
 
+
+
+
+async def finmind_get(dataset: str, data_id: str | None = None, start_date: str | None = None, end_date: str | None = None):
+    if not FINMIND_ENABLED:
+        return []
+    params={"dataset":dataset,"token":FINMIND_TOKEN}
+    if data_id: params["data_id"]=data_id
+    if start_date: params["start_date"]=start_date
+    if end_date: params["end_date"]=end_date
+    async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
+        r=await client.get(FINMIND_BASE, params=params)
+        if r.status_code in (402,429):
+            return []
+        r.raise_for_status()
+        payload=r.json()
+        return payload.get("data",[]) if isinstance(payload,dict) else []
+
+
+def fm_float(v):
+    try:
+        if v is None or v=="": return None
+        return float(str(v).replace(",","").replace("%",""))
+    except Exception:
+        return None
+
+
+async def enrich_finmind_symbol(symbol: str):
+    """Low-frequency FinMind enrichment for candidates/holdings.
+    Fugle remains the live-price source; FinMind supplies deeper daily/fundamental/chip data.
+    """
+    import datetime
+    today=datetime.date.today()
+    start=(today-datetime.timedelta(days=420)).isoformat()
+
+    f=fundamental_cache.setdefault(symbol,{})
+    c=chip_cache.setdefault(symbol,{})
+
+    try:
+        per=await finmind_get("TaiwanStockPER",symbol,(today-datetime.timedelta(days=45)).isoformat())
+        if per:
+            row=per[-1]
+            pe=fm_float(row.get("PER"))
+            if pe is not None: f["pe"]=pe
+    except Exception:
+        pass
+
+    try:
+        rev=await finmind_get("TaiwanStockMonthRevenue",symbol,start)
+        if len(rev)>=13:
+            cur=rev[-1]
+            current=fm_float(cur.get("revenue"))
+            # Find same month previous year where possible
+            target_month=cur.get("revenue_month")
+            target_year=(cur.get("revenue_year") or 0)-1
+            prev=next((x for x in reversed(rev[:-1]) if x.get("revenue_month")==target_month and x.get("revenue_year")==target_year),None)
+            previous=fm_float(prev.get("revenue")) if prev else None
+            if current is not None and previous not in (None,0):
+                f["revenueYoY"]=round((current/previous-1)*100,2)
+    except Exception:
+        pass
+
+    try:
+        fs=await finmind_get("TaiwanStockFinancialStatements",symbol,start)
+        if fs:
+            # FinMind financial statements are account rows; use latest BasicEPS / net income-like rows.
+            latest={}
+            for row in fs:
+                typ=str(row.get("type",""))
+                val=fm_float(row.get("value"))
+                if val is not None:
+                    latest[typ]=val
+            eps=None
+            for k,v in latest.items():
+                if "EPS" in k.upper() or "EarningsPerShare" in k:
+                    eps=v
+            if eps is not None: f["eps"]=eps
+            profit_vals=[v for k,v in latest.items() if any(t in k.lower() for t in ("netincome","profitloss","incomeaftertax"))]
+            if profit_vals: f["profitable"]=profit_vals[-1] > 0
+    except Exception:
+        pass
+
+    try:
+        margin=await finmind_get("TaiwanStockMarginPurchaseShortSale",symbol,(today-datetime.timedelta(days=45)).isoformat())
+        if margin:
+            row=margin[-1]
+            # Keep raw balance when ratio denominator isn't supplied; don't fabricate a percentage.
+            bal=None
+            for k in ("MarginPurchaseTodayBalance","MarginPurchaseBalance","MarginPurchaseStockTodayBalance"):
+                if k in row:
+                    bal=fm_float(row.get(k)); break
+            if bal is not None: c["marginBalance"]=bal
+    except Exception:
+        pass
+
+    try:
+        inst=await finmind_get("TaiwanStockInstitutionalInvestorsBuySell",symbol,(today-datetime.timedelta(days=20)).isoformat())
+        if inst:
+            latest_date=inst[-1].get("date")
+            rows=[x for x in inst if x.get("date")==latest_date]
+            net=0.0; got=False
+            for row in rows:
+                buy=fm_float(row.get("buy")); sell=fm_float(row.get("sell"))
+                if buy is not None and sell is not None:
+                    net += buy-sell; got=True
+            if got: c["institutionNet"]=net
+    except Exception:
+        pass
+
+    if any(k in f for k in ("eps","pe","revenueYoY","profitable")): f["available"]=True
+    if any(k in c for k in ("marginRatio","marginBalance","institutionNet")): c["available"]=True
+
+
+async def refresh_finmind_priority():
+    if not FINMIND_ENABLED:
+        return
+    # Enrich holdings first, then strongest currently-known candidates.
+    symbols=[]
+    for h in holdings:
+        s=str(h.get("symbol",""))
+        if s and s not in symbols: symbols.append(s)
+    ranked=sorted(analysis_cache.values(), key=lambda x:x.get("score",0), reverse=True)
+    for x in ranked[:20]:
+        s=str(x.get("symbol",""))
+        if s and s not in symbols: symbols.append(s)
+    # Rate-limit friendly: only a few symbols per collector pass.
+    for s in symbols[:4]:
+        await enrich_finmind_symbol(s)
 
 
 async def refresh_enrichment():
@@ -623,6 +755,7 @@ async def status():
         "workingTodayCount": len(working_today),
         "workingAfterCount": len(working_after),
         "lastCollectAt": last_collect_at,
+        "finmind": FINMIND_ENABLED,
         "lastError": last_error,
         "universeCount": len(current_universe()),
         "universeSource": universe_source,
