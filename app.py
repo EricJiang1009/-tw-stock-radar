@@ -3,6 +3,7 @@ import os
 import asyncio
 import time
 import json
+import re
 from datetime import datetime
 from statistics import mean
 from typing import Any
@@ -29,7 +30,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.4")
+app = FastAPI(title="台股波段雷達 V10.5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1307,13 +1308,16 @@ async def finmind_loop():
         await asyncio.sleep(delay)
 
 async def collector_loop():
+    global collector_status, last_error
     await asyncio.sleep(2)
 
     while True:
         try:
             await collect_cycle()
         except Exception as e:
-            print("collector loop", e)
+            last_error = f"collector: {type(e).__name__}: {e}"
+            collector_status = "error"
+            print("collector loop", repr(e))
 
         if in_market():
             delay = COLLECT_INTERVAL_MARKET
@@ -1417,18 +1421,43 @@ async def filter_health():
         "samples":samples
     }
 
+@app.get("/api/prefilter-health")
+async def prefilter_health():
+    try:
+        syms=official_prefilter_symbols()
+        return {
+            "ok":True,
+            "count":len(syms),
+            "sample":syms[:40],
+            "companyMetaCount":len(company_meta),
+        }
+    except Exception as e:
+        return {
+            "ok":False,
+            "error":f"{type(e).__name__}: {e}",
+            "companyMetaCount":len(company_meta),
+        }
+
 @app.get("/api/collector-health")
 async def collector_health():
     try:
         cache_count=len(list(analysis_cache.keys()))
     except Exception:
         cache_count=0
+    try:
+        prefilter_count=len(official_prefilter_symbols())
+        prefilter_error=""
+    except Exception as e:
+        prefilter_count=0
+        prefilter_error=f"{type(e).__name__}: {e}"
     return {
         "ok":True,
         "collectorStatus": collector_status,
         "lastCollectAt": last_collect_at,
+        "lastError": last_error,
         "universeCount": len(current_universe()),
-        "prefilterCount": len(official_prefilter_symbols()),
+        "prefilterCount": prefilter_count,
+        "prefilterError": prefilter_error,
         "analysisCacheCount": cache_count,
         "workingTodayCount": len(working_today),
         "workingAfterCount": len(working_after),
@@ -1440,7 +1469,7 @@ async def collector_health():
 @app.get("/api/sources")
 async def api_sources():
     return {
-      "fugle": {"enabled": bool(FUGLE_TOKEN), "role": "盤中即時行情"},
+      "fugle": {"enabled": bool(API_KEY), "role": "盤中即時行情"},
       "finmind": {"enabled": bool(FINMIND_TOKEN), "role": "歷史/基本面/籌碼"},
       "twse": {"enabled": True, "role": "上市官方日行情/PE-PB等"},
       "tpex": {"enabled": True, "role": "上櫃官方行情/PE-PB/三大法人/融資融券"},
