@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V9.3")
+app = FastAPI(title="台股波段雷達 V10.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -79,6 +79,92 @@ MARGIN_CAUTION = 20.0
 MARGIN_EXCLUDE = 30.0
 MIN_RADAR_PRICE = 60.0
 MIN_PAID_IN_CAPITAL = 3_000_000_000.0  # 實收資本額至少 30 億元
+# V9.4 official supplemental market-data endpoints
+TWSE_OPENAPI_BASE = "https://openapi.twse.com.tw/v1"
+TPEX_OPENAPI_BASE = "https://www.tpex.org.tw/openapi/v1"
+OFFICIAL_SOURCE_NOTE = "TWSE/TPEx official supplemental data ready"
+
+official_cache = {
+    "twse_quote": {}, "twse_pe": {}, "twse_inst": {}, "twse_margin": {},
+    "tpex_quote": {}, "tpex_pe": {}, "tpex_inst": {}, "tpex_margin": {},
+    "updatedAt": None, "errors": []
+}
+OFFICIAL_TTL = 300
+official_updated_ts = 0.0
+
+def _first(row, keys, default=None):
+    for k in keys:
+        if k in row and row.get(k) not in (None, "", "--", "---"):
+            return row.get(k)
+    return default
+
+def _num(v):
+    try:
+        return float(str(v).replace(",","").replace("%","").strip())
+    except Exception:
+        return None
+
+def _sym(row):
+    v=_first(row, ["Code","證券代號","股票代號","SecuritiesCompanyCode","SecuritiesCompanyCode "])
+    s=str(v or "").strip()
+    return s if s.isdigit() and len(s) in (4,5,6) else None
+
+async def _official_json(client, url):
+    r=await client.get(url, timeout=18.0)
+    r.raise_for_status()
+    data=r.json()
+    return data if isinstance(data,list) else []
+
+async def refresh_official_sources(force=False):
+    """V10 official TWSE/TPEx bulk snapshots. Fail-open: Fugle/FinMind continue working."""
+    global official_updated_ts, official_cache
+    if not force and official_updated_ts and time.time()-official_updated_ts < OFFICIAL_TTL:
+        return official_cache
+    errors=[]
+    urls={
+      "twse_quote": f"{TWSE_OPENAPI_BASE}/exchangeReport/STOCK_DAY_ALL",
+      "twse_pe": f"{TWSE_OPENAPI_BASE}/exchangeReport/BWIBBU_ALL",
+      "tpex_quote": f"{TPEX_OPENAPI_BASE}/tpex_mainboard_quotes",
+      "tpex_pe": f"{TPEX_OPENAPI_BASE}/tpex_mainboard_peratio_analysis",
+      "tpex_inst": f"{TPEX_OPENAPI_BASE}/tpex_3insti_daily_trading",
+      "tpex_margin": f"{TPEX_OPENAPI_BASE}/tpex_mainboard_margin_balance",
+    }
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        for key,url in urls.items():
+            try:
+                rows=await _official_json(client,url)
+                mapped={}
+                for row in rows:
+                    if not isinstance(row,dict): continue
+                    s=_sym(row)
+                    if s: mapped[s]=row
+                official_cache[key]=mapped
+            except Exception as e:
+                errors.append(f"{key}: {e}")
+    official_cache["errors"]=errors[-8:]
+    official_cache["updatedAt"]=now_iso()
+    official_updated_ts=time.time()
+    return official_cache
+
+def official_enrichment(symbol):
+    """Normalize official fields; missing fields never erase Fugle/FinMind data."""
+    q=official_cache["twse_quote"].get(symbol) or official_cache["tpex_quote"].get(symbol) or {}
+    pe=official_cache["twse_pe"].get(symbol) or official_cache["tpex_pe"].get(symbol) or {}
+    ins=official_cache["tpex_inst"].get(symbol) or {}
+    mar=official_cache["tpex_margin"].get(symbol) or {}
+    return {
+      "officialClose": _num(_first(q,["ClosingPrice","收盤價","Close","ClosePrice"])),
+      "officialVolume": _num(_first(q,["TradeVolume","成交股數","成交量","TradingShares"])),
+      "officialAmount": _num(_first(q,["TradeValue","成交金額","成交值"])),
+      "officialPE": _num(_first(pe,["PEratio","本益比","PERatio"])),
+      "officialPB": _num(_first(pe,["PBratio","股價淨值比","PBRatio"])),
+      "officialYield": _num(_first(pe,["DividendYield","殖利率(%)","殖利率"])),
+      "officialForeignNet": _num(_first(ins,["ForeignInvestorsNetBuySell","外資及陸資(不含外資自營商)-買賣超股數","外資及陸資買賣超股數"])),
+      "officialTrustNet": _num(_first(ins,["InvestmentTrustNetBuySell","投信-買賣超股數","投信買賣超股數"])),
+      "officialDealerNet": _num(_first(ins,["DealerNetBuySell","自營商-買賣超股數","自營商買賣超股數"])),
+      "officialMarginBalance": _num(_first(mar,["MarginPurchaseBalance","融資餘額","融資今日餘額"])),
+      "officialSource": "TWSE/TPEx" if (q or pe or ins or mar) else None,
+    }
 
 # V9.2 hard theme whitelist: radar recommendations must belong to one of these.
 ALLOWED_INDUSTRY_KEYWORDS = [
@@ -120,11 +206,17 @@ def radar_hard_filter(x):
     try:
         if float(x.get("price",0) or 0) < MIN_RADAR_PRICE:
             return False
-        cap=x.get("paidInCapital")
-        if cap is None or float(cap) < MIN_PAID_IN_CAPITAL:
-            return False
     except Exception:
         return False
+
+    # V9.4: only reject small capital when official capital data is actually known.
+    cap=x.get("paidInCapital")
+    if cap is not None:
+        try:
+            if float(cap) < MIN_PAID_IN_CAPITAL:
+                return False
+        except Exception:
+            pass
     return allowed_radar_theme(x)
 
 company_meta: dict[str, dict] = {}
@@ -531,6 +623,19 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         stage = "觀察"
 
     fundamental, chip = enriched(q["symbol"])
+    official = official_enrichment(q["symbol"])
+    # Official market data is supplemental; do not overwrite fresher Fugle quotes.
+    if fundamental.get("pe") is None and official.get("officialPE") is not None:
+        fundamental["pe"] = official["officialPE"]
+    if chip.get("marginBalance") is None and official.get("officialMarginBalance") is not None:
+        chip["marginBalance"] = official["officialMarginBalance"]
+    # TPEx official institutional data is used as fallback when FinMind is missing.
+    if chip.get("foreignNet") is None and official.get("officialForeignNet") is not None:
+        chip["foreignNet"] = official["officialForeignNet"] / 1000.0
+    if chip.get("trustNet") is None and official.get("officialTrustNet") is not None:
+        chip["trustNet"] = official["officialTrustNet"] / 1000.0
+    if chip.get("dealerNet") is None and official.get("officialDealerNet") is not None:
+        chip["dealerNet"] = official["officialDealerNet"] / 1000.0
     meta = company_meta.get(q["symbol"], {})
     paid_in_capital = meta.get("paidInCapital")
     industry = meta.get("industry", "")
@@ -599,6 +704,13 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         "industry": industry,
         "topicTags": topic_tags,
         "topicBonus": topic_bonus,
+        "officialSource": official.get("officialSource"),
+        "officialPE": official.get("officialPE"),
+        "officialPB": official.get("officialPB"),
+        "officialYield": official.get("officialYield"),
+        "officialClose": official.get("officialClose"),
+        "officialVolume": official.get("officialVolume"),
+        "officialAmount": official.get("officialAmount"),
         "fundamentalAvailable": bool(fundamental.get("available")),
         "chipAvailable": bool(chip.get("available")),
         "marginExcluded": margin_excluded,
@@ -666,6 +778,7 @@ def rebuild_working():
 
 
 async def collect_holdings_full():
+    await refresh_official_sources()
     """
     v3 修正重點：
     所有持股都會做完整分析，不只補 quote。
@@ -1062,6 +1175,17 @@ async def startup_event():
 async def root():
     return FileResponse("index.html")
 
+
+@app.get("/api/sources")
+async def api_sources():
+    return {
+      "fugle": {"enabled": bool(FUGLE_TOKEN), "role": "盤中即時行情"},
+      "finmind": {"enabled": bool(FINMIND_TOKEN), "role": "歷史/基本面/籌碼"},
+      "twse": {"enabled": True, "role": "上市官方日行情/PE-PB等"},
+      "tpex": {"enabled": True, "role": "上櫃官方行情/PE-PB/三大法人/融資融券"},
+      "officialUpdatedAt": official_cache.get("updatedAt"),
+      "officialErrors": official_cache.get("errors",[]),
+    }
 
 @app.get("/api/status")
 async def status():

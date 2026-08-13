@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Dual Source Radar v9.3</title>
+<title>台股波段雷達 Four Source Radar v10.0</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -66,7 +66,7 @@
 
 @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}.hcards{grid-template-columns:1fr}.metrics,.levels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="app">
-<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果</div></div>
+<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景持續蒐集｜你按按鈕才顯示最新結果<br><span class="muted">資料源：Fugle 即時｜FinMind 籌碼/基本面｜TWSE 官方｜TPEx 官方</span></div></div>
 <div class="sourceStatus">
   <div class="sourceLine">
     <div id="fugleBadge" class="sourceBadge">🟡 Fugle 連線中...</div>
@@ -85,7 +85,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V9.3 硬過濾修正版：修正舊快取可能讓東泥、味全、統一、卜蜂等非目標股票殘留的問題。現在背景排名、發布快照、API回傳、前端顯示都有防線；食品、生技醫療、觀光餐旅、百貨消費、水泥等官方產業直接排除，不再允許名稱關鍵字覆蓋產業排除。Top20僅保留科技/AI電子、半導體、矽晶圓、功率半導體、記憶體、PCB、散熱、光通訊、軍工/國防/無人機/航太與航運等目標題材，並維持股價至少60元、實收資本額至少30億元。持股監控不受影響。</div></div>
+<div class="notice">V10.0 四資料源版：Fugle 繼續負責盤中即時行情；FinMind 負責歷史、基本面與籌碼；TWSE 官方 OpenAPI 補上市日成交與PE/PB等；TPEx 官方 OpenAPI 補上櫃行情、PE/PB、三大法人與融資融券。官方來源採補充/備援，不會用較慢的盤後資料覆蓋Fugle盤中即時價；單一來源失敗時其餘來源仍可工作。V9.4的主流題材、股價60元、已知股本30億元、冷門產業排除、今日盤中突破與盤後確認突破邏輯全部保留。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
