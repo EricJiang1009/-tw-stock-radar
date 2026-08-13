@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V9.0")
+app = FastAPI(title="台股波段雷達 V9.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -77,6 +77,57 @@ CHUNK_SIZE = 18
 # V7 three-layer radar
 MARGIN_CAUTION = 20.0
 MARGIN_EXCLUDE = 30.0
+MIN_RADAR_PRICE = 60.0
+MIN_PAID_IN_CAPITAL = 3_000_000_000.0  # 實收資本額至少 30 億元
+
+# V9.2 hard theme whitelist: radar recommendations must belong to one of these.
+ALLOWED_INDUSTRY_KEYWORDS = [
+    "半導體","電腦","週邊","光電","通信","網路","電子零組件","電子通路",
+    "資訊服務","其他電子","數位雲端","航運"
+]
+ALLOWED_THEME_KEYWORDS = [
+    "AI","伺服器","ASIC","GPU","HBM","CoWoS","半導體","IC設計","晶圓","矽晶圓",
+    "封裝","測試","設備","材料","功率半導體","MOSFET","IGBT","記憶體","DRAM","NAND",
+    "PCB","CCL","銅箔基板","散熱","液冷","CPO","光通訊","網通","高速傳輸","電源",
+    "PMIC","被動元件","車用電子","電動車","機器人","衛星","低軌衛星",
+    "軍工","國防","無人機","航太","雷達","航運","貨櫃","散裝","航空"
+]
+BLOCKED_INDUSTRY_KEYWORDS = [
+    "食品","生技","醫療","觀光","餐旅","百貨","居家","農業","畜牧","水泥","造紙",
+    "紡織","橡膠","建材","營造","金融","保險","貿易","消費"
+]
+
+def allowed_radar_theme(x):
+    """Strict Top20 whitelist. Holdings are never filtered."""
+    industry = str(x.get("industry","") or "").strip()
+    tags = " ".join(str(v) for v in (x.get("topicTags",[]) or []))
+
+    # Hard reject cold/unwanted official industries. No theme/name override.
+    if any(k in industry for k in BLOCKED_INDUSTRY_KEYWORDS):
+        return False
+
+    # Official technology/electronics/shipping industries.
+    if any(k in industry for k in ALLOWED_INDUSTRY_KEYWORDS):
+        return True
+
+    # Defense/AI/technology thematic names need a real detected topic tag.
+    return any(k.lower() in tags.lower() for k in ALLOWED_THEME_KEYWORDS)
+
+
+def radar_hard_filter(x):
+    if not x or x.get("marginExcluded"):
+        return False
+    try:
+        if float(x.get("price",0) or 0) < MIN_RADAR_PRICE:
+            return False
+        cap=x.get("paidInCapital")
+        if cap is None or float(cap) < MIN_PAID_IN_CAPITAL:
+            return False
+    except Exception:
+        return False
+    return allowed_radar_theme(x)
+
+company_meta: dict[str, dict] = {}
 ENRICH_TTL = 21600
 fundamental_cache: dict[str, dict] = {}
 chip_cache: dict[str, dict] = {}
@@ -119,33 +170,85 @@ def extract_symbol(row: dict) -> str | None:
     return None
 
 
+def _to_number(v):
+    try:
+        s = str(v or "").replace(",", "").strip()
+        if not s or s in ("-", "--", "None"):
+            return None
+        return float(s)
+    except Exception:
+        return None
+
+
+def extract_paid_in_capital(row: dict):
+    # MOPS company-basic-info OpenAPI commonly exposes 實收資本額.
+    for k in ("實收資本額", "PaidInCapital", "實收資本額(元)", "資本額"):
+        if k in row:
+            x = _to_number(row.get(k))
+            if x is not None:
+                return x
+    # Flexible fallback for schema wording changes.
+    for k, v in row.items():
+        sk = str(k)
+        if "實收" in sk and "資本" in sk:
+            x = _to_number(v)
+            if x is not None:
+                return x
+    return None
+
+
+def extract_company_name(row: dict):
+    for k in ("公司簡稱", "公司名稱", "CompanyName", "SecuritiesCompanyName"):
+        if row.get(k):
+            return str(row.get(k)).strip()
+    return ""
+
+
+def extract_industry(row: dict):
+    for k in ("產業別", "產業類別", "Industry", "industry_category"):
+        if row.get(k) not in (None, ""):
+            return str(row.get(k)).strip()
+    return ""
+
+
 async def refresh_universe(force: bool = False):
-    """Build a dynamic TWSE + TPEx common-stock universe from official OpenAPI.
-    Falls back to WATCHLIST if the official list is temporarily unavailable.
-    """
-    global universe_symbols, universe_updated_at, universe_source, last_error
+    """Build TWSE + TPEx common-stock universe and cache company paid-in capital."""
+    global universe_symbols, universe_updated_at, universe_source, last_error, company_meta
     if universe_symbols and not force and time.time() - universe_updated_at < UNIVERSE_REFRESH_TTL:
         return universe_symbols
 
     found = set()
+    meta = dict(company_meta)
+
     async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
         for url in UNIVERSE_URLS:
             try:
                 r = await client.get(url)
                 r.raise_for_status()
                 data = r.json()
-                if isinstance(data, list):
-                    for row in data:
-                        if isinstance(row, dict):
-                            s = extract_symbol(row)
-                            if s:
-                                found.add(s)
+                if not isinstance(data, list):
+                    continue
+                for row in data:
+                    if not isinstance(row, dict):
+                        continue
+                    s = extract_symbol(row)
+                    if not s:
+                        continue
+                    found.add(s)
+                    old = meta.get(s, {})
+                    cap = extract_paid_in_capital(row)
+                    meta[s] = {
+                        **old,
+                        "name": extract_company_name(row) or old.get("name", ""),
+                        "industry": extract_industry(row) or old.get("industry", ""),
+                        "paidInCapital": cap if cap is not None else old.get("paidInCapital"),
+                    }
             except Exception as e:
                 last_error = f"universe: {str(e)}"
 
     if found:
-        # Four-digit common-stock universe. High-priced names are filtered later by score/price.
         universe_symbols = sorted(found)
+        company_meta = meta
         universe_updated_at = time.time()
         universe_source = "TWSE+TPEx OpenAPI"
     elif not universe_symbols:
@@ -428,12 +531,17 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         stage = "觀察"
 
     fundamental, chip = enriched(q["symbol"])
+    meta = company_meta.get(q["symbol"], {})
+    paid_in_capital = meta.get("paidInCapital")
+    industry = meta.get("industry", "")
+    topic_bonus, topic_tags = hot_topic_score(q.get("name",""), industry, fundamental.get("topicTags",""))
+
     technical_score = score_technical(change, vol_ratio, dist, tech)
     fundamental_score = score_fundamental(fundamental)
     chip_score = score_chip(chip)
 
     # 技術 50%、基本面 25%、籌碼 25%。資料不足採中性 50，不偽造數字。
-    score = round(technical_score * .50 + fundamental_score * .25 + chip_score * .25, 1)
+    score = round(min(100, technical_score * .50 + fundamental_score * .25 + chip_score * .25 + topic_bonus * .35), 1)
 
     # 融資使用率 >=30% 原則上不進 Top20；在資料列保留旗標供過濾與顯示。
     margin_ratio = chip.get("marginRatio")
@@ -481,6 +589,16 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         "profitable": fundamental.get("profitable"),
         "marginRatio": margin_ratio,
         "institutionNet": chip.get("institutionNet"),
+        "foreignNet": chip.get("foreignNet"),
+        "trustNet": chip.get("trustNet"),
+        "dealerNet": chip.get("dealerNet"),
+        "foreignStreak": chip.get("foreignStreak", 0),
+        "trustStreak": chip.get("trustStreak", 0),
+        "dealerStreak": chip.get("dealerStreak", 0),
+        "paidInCapital": paid_in_capital,
+        "industry": industry,
+        "topicTags": topic_tags,
+        "topicBonus": topic_bonus,
         "fundamentalAvailable": bool(fundamental.get("available")),
         "chipAvailable": bool(chip.get("available")),
         "marginExcluded": margin_excluded,
@@ -511,13 +629,40 @@ async def collect_symbol_full(symbol: str):
 
 def rebuild_working():
     global working_today, working_after
-    rows = [
-        x for x in analysis_cache.values()
-        if x and not x.get("marginExcluded") and (x["price"] < 1000 or x["score"] >= 93)
-    ]
-    rows.sort(key=lambda x: x["score"], reverse=True)
-    working_today = rows[:20]
-    working_after = rows[:20]
+
+    eligible = []
+    for x in analysis_cache.values():
+        if not radar_hard_filter(x):
+            continue
+
+        # Keep earlier high-priced exception behavior.
+        if x["price"] >= 1000 and x.get("score", 0) < 93:
+            continue
+
+        y = dict(x)
+        sig, inst_bonus = institutional_signal(y)
+
+        # Today = intraday ignition / sudden volume / breaking out now.
+        today_extra = breakout_signal(y, after=False)
+        today_extra += min(18, max(0, float(y.get("volRatio",0) or 0) - 1) * 7)
+        today_extra += float(y.get("topicBonus", 0) or 0)
+        y["todayRankScore"] = round(y.get("score",0) + today_extra, 1)
+
+        # After-hours = confirmed first-day breakout; failed/low-volume breakout is punished.
+        after_extra = breakout_signal(y, after=True)
+        after_extra += float(y.get("topicBonus", 0) or 0)
+        after_extra += inst_bonus
+        if float(y.get("changePercent",0) or 0) <= 0:
+            after_extra -= 10
+        y["afterRankScore"] = round(y.get("score",0) + after_extra, 1)
+        y["institutionSignal"] = sig
+        eligible.append(y)
+
+    today = sorted(eligible, key=lambda z: z.get("todayRankScore",0), reverse=True)
+    after = sorted(eligible, key=lambda z: z.get("afterRankScore",0), reverse=True)
+
+    working_today = today[:20]
+    working_after = after[:20]
 
 
 async def collect_holdings_full():
@@ -637,6 +782,54 @@ def fm_float(v):
         return None
 
 
+
+def signed_streak(values):
+    """Positive count = consecutive buy days; negative count = consecutive sell days."""
+    if not values:
+        return 0
+    last = values[-1]
+    if last == 0:
+        return 0
+    sign = 1 if last > 0 else -1
+    n = 0
+    for v in reversed(values):
+        if v == 0 or (v > 0) != (sign > 0):
+            break
+        n += 1
+    return sign * n
+
+
+def parse_inst_wide(rows):
+    if not rows:
+        return {}
+    rows = sorted(rows, key=lambda r: str(r.get("date","")))
+    daily = []
+    for r in rows:
+        foreign = (fm_float(r.get("Foreign_Investor_buy")) or 0) - (fm_float(r.get("Foreign_Investor_sell")) or 0)
+        trust = (fm_float(r.get("Investment_Trust_buy")) or 0) - (fm_float(r.get("Investment_Trust_sell")) or 0)
+        dealer = (
+            (fm_float(r.get("Dealer_buy")) or 0) - (fm_float(r.get("Dealer_sell")) or 0)
+            + (fm_float(r.get("Dealer_self_buy")) or 0) - (fm_float(r.get("Dealer_self_sell")) or 0)
+            + (fm_float(r.get("Dealer_Hedging_buy")) or 0) - (fm_float(r.get("Dealer_Hedging_sell")) or 0)
+        )
+        # FinMind values are shares; UI wants 張.
+        daily.append({
+            "foreign": foreign / 1000.0,
+            "trust": trust / 1000.0,
+            "dealer": dealer / 1000.0,
+        })
+    latest = daily[-1]
+    return {
+        "foreignNet": round(latest["foreign"], 2),
+        "trustNet": round(latest["trust"], 2),
+        "dealerNet": round(latest["dealer"], 2),
+        "institutionNet": round(latest["foreign"] + latest["trust"] + latest["dealer"], 2),
+        "foreignStreak": signed_streak([x["foreign"] for x in daily]),
+        "trustStreak": signed_streak([x["trust"] for x in daily]),
+        "dealerStreak": signed_streak([x["dealer"] for x in daily]),
+    }
+
+
 async def enrich_finmind_symbol(symbol: str):
     """Low-frequency FinMind enrichment for candidates/holdings.
     Fugle remains the live-price source; FinMind supplies deeper daily/fundamental/chip data.
@@ -706,21 +899,19 @@ async def enrich_finmind_symbol(symbol: str):
         pass
 
     try:
-        inst=await finmind_get("TaiwanStockInstitutionalInvestorsBuySell",symbol,(today-datetime.timedelta(days=20)).isoformat())
-        if inst:
-            latest_date=inst[-1].get("date")
-            rows=[x for x in inst if x.get("date")==latest_date]
-            net=0.0; got=False
-            for row in rows:
-                buy=fm_float(row.get("buy")); sell=fm_float(row.get("sell"))
-                if buy is not None and sell is not None:
-                    net += buy-sell; got=True
-            if got: c["institutionNet"]=net
+        inst=await finmind_get(
+            "TaiwanStockInstitutionalInvestorsBuySellWide",
+            symbol,
+            (today-datetime.timedelta(days=35)).isoformat()
+        )
+        parsed = parse_inst_wide(inst)
+        if parsed:
+            c.update(parsed)
     except Exception:
         pass
 
     if any(k in f for k in ("eps","pe","revenueYoY","profitable")): f["available"]=True
-    if any(k in c for k in ("marginRatio","marginBalance","institutionNet")): c["available"]=True
+    if any(k in c for k in ("marginRatio","marginBalance","institutionNet","foreignNet","trustNet","dealerNet")): c["available"]=True
 
 
 async def refresh_finmind_priority():
@@ -902,10 +1093,11 @@ async def register_holdings(symbols: str = Query(...)):
 
 
 def published_payload(obj):
+    safe_rows = [x for x in obj.get("rows", []) if radar_hard_filter(x)][:20]
     return {
         "live": LIVE_MODE,
         "updatedAt": obj["updatedAt"],
-        "rows": obj["rows"],
+        "rows": safe_rows,
         "collector": collector_status,
     }
 
@@ -927,13 +1119,13 @@ async def publish_radar(mode: str):
     if mode == "after":
         published_after = {
             "updatedAt": time.time(),
-            "rows": [dict(x) for x in working_after]
+            "rows": [dict(x) for x in working_after if radar_hard_filter(x)][:20]
         }
         return published_payload(published_after)
 
     published_today = {
         "updatedAt": time.time(),
-        "rows": [dict(x) for x in working_today]
+        "rows": [dict(x) for x in working_today if radar_hard_filter(x)][:20]
     }
     return published_payload(published_today)
 

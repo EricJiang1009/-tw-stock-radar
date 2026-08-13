@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Dual Source Radar v9.0</title>
+<title>台股波段雷達 Dual Source Radar v9.3</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -85,7 +85,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V9.0 選股核心升級：今日 Top 20 聚焦盤中突然放量與突破；盤後 Top 20 聚焦收盤確認的第一日有效突破。加入 AI/科技、半導體、矽晶圓、功率半導體、記憶體、PCB、散熱、光通訊、航運、軍工等題材訊號。盤後主列直接顯示法人燈號：🟢三大法人同步買超、🔴三大法人同步賣超、🟡方向不一致；展開後顯示外資、投信、自營商實際買賣超張數與連續天數。原有黃金交叉、5日乖離、PE、EPS、融資%、技術/基本/籌碼/綜合分維持收合顯示。</div></div>
+<div class="notice">V9.3 硬過濾修正版：修正舊快取可能讓東泥、味全、統一、卜蜂等非目標股票殘留的問題。現在背景排名、發布快照、API回傳、前端顯示都有防線；食品、生技醫療、觀光餐旅、百貨消費、水泥等官方產業直接排除，不再允許名稱關鍵字覆蓋產業排除。Top20僅保留科技/AI電子、半導體、矽晶圓、功率半導體、記憶體、PCB、散熱、光通訊、軍工/國防/無人機/航太與航運等目標題材，並維持股價至少60元、實收資本額至少30億元。持股監控不受影響。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -218,8 +218,16 @@ function toggleRadarDetail(key){
  renderRadar();
 }
 
+function frontendRadarGuard(r){
+ const ind=String(r.industry||"");
+ const blocked=["食品","生技","醫療","觀光","餐旅","百貨","居家","農業","畜牧","水泥","造紙","紡織","橡膠","建材","營造","金融","保險","貿易","消費"];
+ if(Number(r.price||0)<60) return false;
+ if(blocked.some(k=>ind.includes(k))) return false;
+ return true;
+}
+
 function renderRadar(){
- let data=radarCache[mode==="after"?"after":"today"]||[];
+ let data=(radarCache[mode==="after"?"after":"today"]||[]).filter(frontendRadarGuard);
 
  rr.innerHTML=data.length?data.map((r,i)=>{
    let key=(mode==="after"?"a":"t")+"-"+r.symbol;
@@ -250,6 +258,9 @@ function renderRadar(){
          <div class="radarMetric"><small>籌碼分</small><b>${r.chipScore??"-"}</b></div>
          <div class="radarMetric"><small>綜合分</small><b class="gold">${r.score??"-"}</b></div>
          <div class="radarMetric"><small>熱門題材</small><b>${(r.topicTags||[]).join(" / ")||"未標記"}</b></div>
+         <div class="radarMetric"><small>題材資格</small><b class="g">主流題材通過</b></div>
+         <div class="radarMetric"><small>實收資本額</small><b>${r.paidInCapital==null?"資料待補":(Number(r.paidInCapital)/100000000).toFixed(1)+" 億"}</b></div>
+         <div class="radarMetric"><small>${mode==="after"?"盤後確認分":"盤中突破分"}</small><b class="gold">${mode==="after"?(r.afterRankScore??"-"):(r.todayRankScore??"-")}</b></div>
          <div class="radarMetric"><small>法人燈號</small><b>${instSignal(r)}</b></div>
          <div class="radarMetric"><small>外資</small><b class="${instClass(r.foreignNet)}">${instNum(r.foreignNet)}</b><small>${r.foreignStreak?`連續 ${Math.abs(r.foreignStreak)} 日`:""}</small></div>
          <div class="radarMetric"><small>投信</small><b class="${instClass(r.trustNet)}">${instNum(r.trustNet)}</b><small>${r.trustStreak?`連續 ${Math.abs(r.trustStreak)} 日`:""}</small></div>
