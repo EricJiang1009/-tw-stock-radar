@@ -1617,7 +1617,7 @@ async def register_holdings(symbols: str = Query(...)):
 
 
 def published_payload(obj):
-    safe_rows = [x for x in obj.get("rows", []) if radar_hard_filter(x)][:20]
+    safe_rows = [x for x in obj.get("rows", []) if radar_publish_filter(x)][:20]
     return {
         "live": LIVE_MODE,
         "updatedAt": obj["updatedAt"],
