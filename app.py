@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V8.3")
+app = FastAPI(title="台股波段雷達 V9.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -356,6 +356,44 @@ def score_chip(c):
         s += 20 if inst > 0 else -15 if inst < 0 else 0
     return round(max(0, min(100, s)), 1)
 
+
+
+# V9.0 supplemental breakout/topic/institutional signals
+HOT_TOPIC_WORDS = [
+    "AI","伺服器","ASIC","GPU","HBM","半導體","IC設計","封裝","測試","半導體設備",
+    "半導體材料","矽晶圓","功率半導體","MOSFET","IGBT","記憶體","DRAM","NAND",
+    "PCB","CCL","銅箔基板","散熱","液冷","CPO","光通訊","網通","高速傳輸",
+    "電源","PMIC","被動元件","車用電子","電動車","航運","軍工","無人機","航太","國防"
+]
+
+def hot_topic_score(name="", industry="", tags=""):
+    text = f"{name} {industry} {tags}".lower()
+    hits = [k for k in HOT_TOPIC_WORDS if k.lower() in text]
+    return min(20, len(hits) * 5), hits[:5]
+
+def institutional_signal(x):
+    vals = [x.get("foreignNet"), x.get("trustNet"), x.get("dealerNet")]
+    if any(v is None for v in vals):
+        return "unknown", 0
+    f,t,d = [float(v or 0) for v in vals]
+    if f > 0 and t > 0 and d > 0: return "all_buy", 10
+    if f < 0 and t < 0 and d < 0: return "all_sell", -12
+    total = f+t+d
+    return ("mixed_buy",3) if total>0 else ("mixed_sell",-3) if total<0 else ("neutral",0)
+
+def breakout_signal(x, after=False):
+    vr = float(x.get("volRatio",0) or 0)
+    ch = float(x.get("changePercent",0) or 0)
+    price = float(x.get("price",0) or 0)
+    bo = float(x.get("breakout",0) or 0)
+    s = 0
+    if vr >= 1.5: s += 12
+    if vr >= 2.0: s += 8
+    if ch > 0: s += 5
+    if bo and price >= bo: s += 15
+    if after and bo and price < bo: s -= 30
+    if after and vr < 1.2: s -= 15
+    return s
 
 def enriched(symbol):
     return fundamental_cache.get(symbol, {}), chip_cache.get(symbol, {})

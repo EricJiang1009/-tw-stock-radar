@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Dual Source Radar v8.6</title>
+<title>台股波段雷達 Dual Source Radar v9.0</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -85,7 +85,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V8.6 雷達收合版：今日 Top 20 與盤後 Top 20 預設隱藏黃金交叉、5日乖離、PE、EPS、融資%、技術分、基本分、籌碼分與綜合分。每檔都有「展開／收合」按鈕，點一下顯示這九項，再點一下立即隱藏。排名與股票名稱仍維持凍結，其他雙資料源與持股功能全部保留。切換分頁不會重新掃描，你按「顯示最新掃描」才把目前背景排名發布到畫面。Fugle 基本方案有頻率限制，因此全市場不是每分鐘全部重掃，而是持續輪替更新。</div></div>
+<div class="notice">V9.0 選股核心升級：今日 Top 20 聚焦盤中突然放量與突破；盤後 Top 20 聚焦收盤確認的第一日有效突破。加入 AI/科技、半導體、矽晶圓、功率半導體、記憶體、PCB、散熱、光通訊、航運、軍工等題材訊號。盤後主列直接顯示法人燈號：🟢三大法人同步買超、🔴三大法人同步賣超、🟡方向不一致；展開後顯示外資、投信、自營商實際買賣超張數與連續天數。原有黃金交叉、5日乖離、PE、EPS、融資%、技術/基本/籌碼/綜合分維持收合顯示。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -192,6 +192,27 @@ async function publishRadar(){
  }
 }
 
+
+function instNum(v){
+ if(v===null || v===undefined || v==="") return "資料待補";
+ let n=Number(v);
+ return `${n>0?"+":""}${Math.round(n).toLocaleString()} 張`;
+}
+function instClass(v){
+ if(v===null || v===undefined || v==="") return "";
+ return Number(v)>0?"g":Number(v)<0?"r":"";
+}
+function instSignal(r){
+ let vals=[r.foreignNet,r.trustNet,r.dealerNet];
+ if(vals.some(v=>v===null||v===undefined||v==="")) return `<span class="muted">⚪ 法人資料待補</span>`;
+ let [f,t,d]=vals.map(Number);
+ if(f>0&&t>0&&d>0) return `<span class="g">🟢 三大法人同步買超</span>`;
+ if(f<0&&t<0&&d<0) return `<span class="r">🔴 三大法人同步賣超</span>`;
+ if(f+t+d>0) return `<span class="o">🟡 法人偏買</span>`;
+ if(f+t+d<0) return `<span class="o">🟡 法人偏賣</span>`;
+ return `<span class="muted">⚪ 法人中性</span>`;
+}
+
 function toggleRadarDetail(key){
  radarDetailsOpen[key]=!radarDetailsOpen[key];
  renderRadar();
@@ -214,7 +235,7 @@ function renderRadar(){
        <div class="o">${r.breakout??"-"}</div>
        <div>${r.stage??"-"}</div>
        <div><button class="btn radarToggle" onclick="toggleRadarDetail('${key}')">${open?"收合 ▲":"展開 ▼"}</button></div>
-       <div>${r.fundamentalAvailable||r.chipAvailable?"已補資料":"部分資料待補"}</div>
+       <div>${mode==="after"?instSignal(r):(r.fundamentalAvailable||r.chipAvailable?"已補資料":"部分資料待補")}</div>
      </div>
 
      <div class="radarMore ${open?"open":""}">
@@ -228,6 +249,12 @@ function renderRadar(){
          <div class="radarMetric"><small>基本分</small><b>${r.fundamentalScore??"-"}</b></div>
          <div class="radarMetric"><small>籌碼分</small><b>${r.chipScore??"-"}</b></div>
          <div class="radarMetric"><small>綜合分</small><b class="gold">${r.score??"-"}</b></div>
+         <div class="radarMetric"><small>熱門題材</small><b>${(r.topicTags||[]).join(" / ")||"未標記"}</b></div>
+         <div class="radarMetric"><small>法人燈號</small><b>${instSignal(r)}</b></div>
+         <div class="radarMetric"><small>外資</small><b class="${instClass(r.foreignNet)}">${instNum(r.foreignNet)}</b><small>${r.foreignStreak?`連續 ${Math.abs(r.foreignStreak)} 日`:""}</small></div>
+         <div class="radarMetric"><small>投信</small><b class="${instClass(r.trustNet)}">${instNum(r.trustNet)}</b><small>${r.trustStreak?`連續 ${Math.abs(r.trustStreak)} 日`:""}</small></div>
+         <div class="radarMetric"><small>自營商</small><b class="${instClass(r.dealerNet)}">${instNum(r.dealerNet)}</b><small>${r.dealerStreak?`連續 ${Math.abs(r.dealerStreak)} 日`:""}</small></div>
+         <div class="radarMetric"><small>三大法人合計</small><b class="${instClass((Number(r.foreignNet)||0)+(Number(r.trustNet)||0)+(Number(r.dealerNet)||0))}">${(r.foreignNet==null||r.trustNet==null||r.dealerNet==null)?"資料待補":instNum(Number(r.foreignNet)+Number(r.trustNet)+Number(r.dealerNet))}</b></div>
        </div>
      </div>
    </div>`;
