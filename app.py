@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.0")
+app = FastAPI(title="台股波段雷達 V10.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,7 +110,7 @@ def _sym(row):
     return s if s.isdigit() and len(s) in (4,5,6) else None
 
 async def _official_json(client, url):
-    r=await client.get(url, timeout=18.0)
+    r=await client.get(url, timeout=6.0)
     r.raise_for_status()
     data=r.json()
     return data if isinstance(data,list) else []
@@ -803,42 +803,63 @@ async def collect_cycle():
     if not LIVE_MODE:
         collector_status = "demo"
         return
-
     if scan_lock.locked():
         return
 
     async with scan_lock:
         collector_status = "collecting"
-        await refresh_enrichment()
+        cycle_started=time.time()
 
-        # 1) 持股優先完整更新
-        await collect_holdings_full()
+        # Supplemental sources must never block the radar.
+        try:
+            await asyncio.wait_for(refresh_official_sources(), timeout=12)
+        except Exception as ex:
+            official_cache.setdefault("errors", []).append(f"official timeout: {ex}")
 
-        # 2) 動態全市場候選池：上市＋上櫃官方清單，分批輪掃。
-        # 基本 Fugle 方案無法一次 snapshot 全市場，因此用背景輪替避免 429。
-        await refresh_universe()
-        symbols = current_universe()
+        try:
+            await asyncio.wait_for(refresh_enrichment(), timeout=18)
+        except Exception:
+            pass
+
+        # Holdings are important, but a slow holding must not freeze the whole cycle.
+        try:
+            await asyncio.wait_for(collect_holdings_full(), timeout=35)
+        except Exception:
+            pass
+
+        try:
+            await asyncio.wait_for(refresh_universe(), timeout=15)
+        except Exception:
+            pass
+
+        symbols=current_universe()
         if symbols:
-            start = rotation_index % len(symbols)
-            chunk = [
-                symbols[(start + i) % len(symbols)]
-                for i in range(min(CHUNK_SIZE, len(symbols)))
-            ]
-            rotation_index = (start + len(chunk)) % len(symbols)
+            start=rotation_index % len(symbols)
+            # Keep each cycle intentionally small so Fugle is never asked to finish 1089 names.
+            batch_size=min(CHUNK_SIZE, 24, len(symbols))
+            chunk=[symbols[(start+i)%len(symbols)] for i in range(batch_size)]
+            rotation_index=(start+len(chunk))%len(symbols)
+            sem=asyncio.Semaphore(3)
 
-            sem = asyncio.Semaphore(3)
-
-            async def guarded(s):
+            async def guarded(sym):
                 async with sem:
-                    r = await collect_symbol_full(s)
-                    await asyncio.sleep(.25)
-                    return r
+                    try:
+                        return await asyncio.wait_for(collect_symbol_full(sym), timeout=9)
+                    except Exception:
+                        return None
 
-            await asyncio.gather(*[guarded(s) for s in chunk])
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(guarded(sym) for sym in chunk), return_exceptions=True),
+                    timeout=45
+                )
+            except Exception:
+                pass
 
+        # Critical V10.1 behavior: publish/rebuild even when some sources timed out.
         rebuild_working()
-        last_collect_at = time.time()
-        collector_status = "ready"
+        last_collect_at=time.time()
+        collector_status="ready"
 
 
 
@@ -1175,6 +1196,20 @@ async def startup_event():
 async def root():
     return FileResponse("index.html")
 
+
+@app.get("/api/collector-health")
+async def collector_health():
+    return {
+        "collectorStatus": collector_status,
+        "lastCollectAt": last_collect_at,
+        "universeCount": len(current_universe()),
+        "analysisCacheCount": len(analysis_cache),
+        "workingTodayCount": len(working_today),
+        "workingAfterCount": len(working_after),
+        "officialUpdatedAt": official_cache.get("updatedAt"),
+        "officialErrors": official_cache.get("errors", [])[-5:],
+        "finmindStatus": FINMIND_STATUS,
+    }
 
 @app.get("/api/sources")
 async def api_sources():
