@@ -30,7 +30,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.5")
+app = FastAPI(title="台股波段雷達 V10.6")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -938,7 +938,7 @@ def priority_score_for_symbol(sym):
     return score
 
 async def collect_cycle():
-    global rotation_index, collector_status, last_collect_at
+    global rotation_index, collector_status, last_collect_at, last_error
 
     if not LIVE_MODE:
         collector_status = "demo"
@@ -950,7 +950,26 @@ async def collect_cycle():
         collector_status = "collecting"
         cycle_started=time.time()
 
-        # Supplemental sources must never block the radar.
+        # A) Holdings are always highest priority and refreshed first.
+        # Each holding has its own timeout so one slow symbol cannot block the rest.
+        async def refresh_one_holding(sym):
+            try:
+                await asyncio.wait_for(collect_symbol_full(sym), timeout=9)
+                return True
+            except Exception:
+                return False
+
+        holding_syms=list(sorted(holding_symbols))
+        if holding_syms:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(refresh_one_holding(sym) for sym in holding_syms), return_exceptions=True),
+                    timeout=max(20, min(70, 6*len(holding_syms)))
+                )
+            except Exception:
+                pass
+
+        # B) Supplemental official sources must never block holdings or the live radar.
         try:
             await asyncio.wait_for(refresh_official_sources(), timeout=12)
         except Exception as ex:
@@ -961,22 +980,18 @@ async def collect_cycle():
         except Exception:
             pass
 
-        # Holdings are important, but a slow holding must not freeze the whole cycle.
-        try:
-            await asyncio.wait_for(collect_holdings_full(), timeout=35)
-        except Exception:
-            pass
-
         try:
             await asyncio.wait_for(refresh_universe(), timeout=15)
         except Exception:
             pass
 
-        # V10.4: official TWSE/TPEx company data first removes water/food/etc.
-        # Fugle is spent only on the target sector pool, not on 1101 -> 1979 sequentially.
+        # C) After holdings are done, scan only the prefiltered target-sector pool.
         symbols=official_prefilter_symbols()
         if not symbols:
             symbols=current_universe()
+
+        # Never waste candidate slots rescanning holdings in the same cycle.
+        symbols=[s for s in symbols if s not in holding_symbols]
         symbols=sorted(symbols, key=priority_score_for_symbol, reverse=True)
 
         if symbols:
@@ -1001,10 +1016,11 @@ async def collect_cycle():
             except Exception:
                 pass
 
-        # Critical V10.1 behavior: publish/rebuild even when some sources timed out.
+        # D) Always rebuild and mark cycle completed even when some symbols timed out.
         rebuild_working()
         last_collect_at=time.time()
         collector_status="ready"
+        last_error=""
 
 
 
@@ -1421,6 +1437,25 @@ async def filter_health():
         "samples":samples
     }
 
+@app.get("/api/holdings-health")
+async def holdings_health():
+    rows=[]
+    for sym in sorted(holding_symbols):
+        x=analysis_cache.get(sym,{}) if isinstance(analysis_cache.get(sym,{}),dict) else {}
+        rows.append({
+            "symbol":sym,
+            "name":x.get("name") or company_meta.get(sym,{}).get("name"),
+            "price":x.get("price"),
+            "updatedAt":x.get("updatedAt"),
+            "hasQuote":bool(x.get("price") is not None),
+        })
+    return {
+        "ok":True,
+        "count":len(rows),
+        "quotedCount":sum(1 for r in rows if r["hasQuote"]),
+        "rows":rows
+    }
+
 @app.get("/api/prefilter-health")
 async def prefilter_health():
     try:
@@ -1454,6 +1489,8 @@ async def collector_health():
         "ok":True,
         "collectorStatus": collector_status,
         "lastCollectAt": last_collect_at,
+        "holdingCount": len(holding_symbols),
+        "holdingQuotedCount": sum(1 for s in holding_symbols if isinstance(analysis_cache.get(s),dict) and analysis_cache.get(s,{}).get("price") is not None),
         "lastError": last_error,
         "universeCount": len(current_universe()),
         "prefilterCount": prefilter_count,
