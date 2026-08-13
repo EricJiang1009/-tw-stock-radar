@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>台股波段雷達 Four Source Radar v10.3</title>
+<title>台股波段雷達 Four Source Radar v10.4</title>
 <style>
 :root{--bg:#07111f;--card:#101c2f;--text:#f4f7fb;--muted:#91a6c2;--line:#263751;--g:#2ad1a3;--o:#ffb24b;--r:#ff6575;--b:#58a6ff;--gold:#ffd166}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(#07111f,#0b1626);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
@@ -66,7 +66,7 @@
 
 @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}.hcards{grid-template-columns:1fr}.metrics,.levels{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="app">
-<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">背景分批輪掃｜單一資料源逾時會跳過，不再卡住整個雷達<br><span class="muted">資料源：Fugle 即時｜FinMind 籌碼/基本面｜TWSE 官方｜TPEx 官方</span></div></div>
+<div class="top"><div><h1>台股波段雷達 Live</h1><div class="muted">官方資料先預篩主流產業｜Fugle只精掃候選池｜分批輪掃<br><span class="muted">資料源：Fugle 即時｜FinMind 籌碼/基本面｜TWSE 官方｜TPEx 官方</span></div></div>
 <div class="sourceStatus">
   <div class="sourceLine">
     <div id="fugleBadge" class="sourceBadge">🟡 Fugle 連線中...</div>
@@ -85,7 +85,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V10.3 診斷穩定修正版：修正 /api/filter-health 在背景快取更新時可能回傳 Internal Server Error。診斷頁現在先建立快照再分析，不會與背景掃描互相衝突。其餘 V10.2 選股與四資料源邏輯維持不變。原 V10.2 說明：修正四資料源正常但Top20仍為0的問題。TWSE/TPEx/MOPS的產業欄位可能回傳文字或產業代碼；現在會先把代碼正規化，例如24半導體、25電腦週邊、26光電、27通信網路、28電子零組件、29電子通路、30資訊服務、31其他電子、15航運，再套用主流題材白名單。食品、生技醫療、觀光、水泥等仍硬排除。同時新增 /api/filter-health，可直接查看到底有多少檔通過股價、股本、題材與最終篩選，避免再次只看到0檔卻不知道原因。</div></div>
+<div class="notice">V10.4 官方預篩版：修正掃描從1101開始、長時間只處理水泥食品而Top20為0的核心問題。現在先用TWSE上市公司基本資料與TPEx上櫃公司基本資料取得公司代號、名稱、產業別與實收資本額，先排除食品、水泥、生技醫療、觀光等非目標產業，再建立科技/電子/半導體/AI相關與航運候選池；Fugle只對候選池做即時行情精掃，不再浪費請求從全市場代號順序慢慢掃。背景仍採分批、單檔逾時跳過；診斷頁保留，並新增prefilterCount方便確認官方預篩池是否建立成功。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 

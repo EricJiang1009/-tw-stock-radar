@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.3")
+app = FastAPI(title="台股波段雷達 V10.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -86,7 +86,7 @@ OFFICIAL_SOURCE_NOTE = "TWSE/TPEx official supplemental data ready"
 
 official_cache = {
     "twse_quote": {}, "twse_pe": {}, "twse_inst": {}, "twse_margin": {},
-    "tpex_quote": {}, "tpex_pe": {}, "tpex_inst": {}, "tpex_margin": {},
+    "tpex_quote": {}, "tpex_pe": {}, "tpex_inst": {}, "tpex_margin": {}, "twse_company": {}, "tpex_company": {},
     "updatedAt": None, "errors": []
 }
 OFFICIAL_TTL = 300
@@ -105,7 +105,7 @@ def _num(v):
         return None
 
 def _sym(row):
-    v=_first(row, ["Code","證券代號","股票代號","SecuritiesCompanyCode","SecuritiesCompanyCode "])
+    v=_first(row, ["Code","證券代號","股票代號","公司代號","SecuritiesCompanyCode","SecuritiesCompanyCode "])
     s=str(v or "").strip()
     return s if s.isdigit() and len(s) in (4,5,6) else None
 
@@ -128,6 +128,8 @@ async def refresh_official_sources(force=False):
       "tpex_pe": f"{TPEX_OPENAPI_BASE}/tpex_mainboard_peratio_analysis",
       "tpex_inst": f"{TPEX_OPENAPI_BASE}/tpex_3insti_daily_trading",
       "tpex_margin": f"{TPEX_OPENAPI_BASE}/tpex_mainboard_margin_balance",
+      "twse_company": f"{TWSE_OPENAPI_BASE}/opendata/t187ap03_L",
+      "tpex_company": f"{TPEX_OPENAPI_BASE}/mopsfin_t187ap03_O",
     }
     async with httpx.AsyncClient(follow_redirects=True) as client:
         for key,url in urls.items():
@@ -141,6 +143,19 @@ async def refresh_official_sources(force=False):
                 official_cache[key]=mapped
             except Exception as e:
                 errors.append(f"{key}: {e}")
+    # Official company master is authoritative for symbol/name/industry/capital.
+    for market_key in ("twse_company","tpex_company"):
+        for sym,row in official_cache.get(market_key,{}).items():
+            if not isinstance(row,dict):
+                continue
+            name=_first(row,["公司簡稱","公司名稱","Name","CompanyName"],sym)
+            industry=_first(row,["產業別","產業類別","Industry","IndustryCode"],"")
+            capital=_num(_first(row,["實收資本額","PaidInCapital","paidInCapital"]))
+            meta=company_meta.setdefault(sym,{})
+            if name: meta["name"]=str(name).replace("\ufffd","").strip()
+            if industry not in (None,""): meta["industry"]=str(industry).strip()
+            if capital is not None: meta["paidInCapital"]=capital
+
     official_cache["errors"]=errors[-8:]
     official_cache["updatedAt"]=now_iso()
     official_updated_ts=time.time()
@@ -872,6 +887,55 @@ async def collect_holdings_full():
     await asyncio.gather(*[guarded(s) for s in list(holding_symbols)])
 
 
+
+def official_prefilter_symbols():
+    """V10.4: filter the universe BEFORE spending Fugle requests."""
+    candidates=[]
+    seen=set()
+    for sym,meta in list(company_meta.items()):
+        if not str(sym).isdigit() or len(str(sym)) != 4:
+            continue
+        industry,code=normalize_industry_value(meta.get("industry",""))
+        probe={
+            "symbol":sym,
+            "name":meta.get("name",sym),
+            "industry":industry or meta.get("industry",""),
+            "industryCode":code,
+            "topicTags":[],
+        }
+        # Explicit unwanted sectors never enter the live quote queue.
+        if code in BLOCKED_INDUSTRY_CODES or any(k in (industry or "") for k in BLOCKED_INDUSTRY_KEYWORDS):
+            continue
+        # Keep official technology/shipping sectors. Theme-only military/AI names
+        # can still enter through the normal universe fallback below.
+        if code in ALLOWED_INDUSTRY_CODES or any(k in (industry or "") for k in ALLOWED_INDUSTRY_KEYWORDS):
+            if sym not in seen:
+                candidates.append(sym); seen.add(sym)
+
+    # Preserve manually watched/held names even if official classification is missing.
+    for sym in list(WATCHLIST):
+        s=str(sym)
+        if s.isdigit() and len(s)==4 and s not in seen:
+            candidates.append(s); seen.add(s)
+    return candidates
+
+def priority_score_for_symbol(sym):
+    # Prefer names that already have cached liquidity/price evidence.
+    x=analysis_cache.get(sym,{}) if isinstance(analysis_cache.get(sym,{}),dict) else {}
+    score=0.0
+    try:
+        price=float(x.get("price",0) or 0)
+        if price>=MIN_RADAR_PRICE: score+=20
+        score+=min(float(x.get("volumeRatio",0) or 0)*10,30)
+        score+=min(float(x.get("turnover",0) or 0)/100000000,20)
+    except Exception:
+        pass
+    meta=company_meta.get(sym,{})
+    industry,code=normalize_industry_value(meta.get("industry",""))
+    if code in {"24","25","26","27","28","29","30","31"}: score+=10
+    if code=="15": score+=5
+    return score
+
 async def collect_cycle():
     global rotation_index, collector_status, last_collect_at
 
@@ -907,11 +971,16 @@ async def collect_cycle():
         except Exception:
             pass
 
-        symbols=current_universe()
+        # V10.4: official TWSE/TPEx company data first removes water/food/etc.
+        # Fugle is spent only on the target sector pool, not on 1101 -> 1979 sequentially.
+        symbols=official_prefilter_symbols()
+        if not symbols:
+            symbols=current_universe()
+        symbols=sorted(symbols, key=priority_score_for_symbol, reverse=True)
+
         if symbols:
             start=rotation_index % len(symbols)
-            # Keep each cycle intentionally small so Fugle is never asked to finish 1089 names.
-            batch_size=min(CHUNK_SIZE, 24, len(symbols))
+            batch_size=min(CHUNK_SIZE, 36, len(symbols))
             chunk=[symbols[(start+i)%len(symbols)] for i in range(batch_size)]
             rotation_index=(start+len(chunk))%len(symbols)
             sem=asyncio.Semaphore(3)
@@ -1359,6 +1428,7 @@ async def collector_health():
         "collectorStatus": collector_status,
         "lastCollectAt": last_collect_at,
         "universeCount": len(current_universe()),
+        "prefilterCount": len(official_prefilter_symbols()),
         "analysisCacheCount": cache_count,
         "workingTodayCount": len(working_today),
         "workingAfterCount": len(working_after),
