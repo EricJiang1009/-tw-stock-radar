@@ -85,7 +85,7 @@
 <div class="form" id="form"><div class="grid2"><input id="sym" placeholder="股票代號"><input id="nm" placeholder="股票名稱"><input id="sh" type="number" placeholder="股數"><input id="cost" type="number" step=".01" placeholder="平均成本"></div><div class="acts"><button class="btn green" onclick="saveH()">儲存</button><button class="btn red" onclick="closeForm()">取消</button></div></div>
 <div id="hc" class="hcards"></div></div>
 
-<div class="notice">V10.6 持股優先版：每一輪先優先更新全部持股行情，等持股更新流程完成後才開始掃今日/盤後候選池；單一持股若逾時只跳過該檔，不會拖住其他持股。Top20仍維持官方預篩主流產業→Fugle精掃候選池→FinMind/TWSE/TPEx補資料的架構。新增 /api/holdings-health 可直接確認目前幾檔持股已取得行情。原 V10.5 說明：修正 V10.4 產業正規化使用 re.match 卻漏掉 import re，導致官方預篩直接拋出 NameError、Fugle 永遠停在首次更新中、collector-health 回傳500的真正問題。另修正資料源診斷的 Fugle 變數名稱，collector 發生任何例外時會顯示 error 而不再假裝一直更新。原 V10.4 說明：修正掃描從1101開始、長時間只處理水泥食品而Top20為0的核心問題。現在先用TWSE上市公司基本資料與TPEx上櫃公司基本資料取得公司代號、名稱、產業別與實收資本額，先排除食品、水泥、生技醫療、觀光等非目標產業，再建立科技/電子/半導體/AI相關與航運候選池；Fugle只對候選池做即時行情精掃，不再浪費請求從全市場代號順序慢慢掃。背景仍採分批、單檔逾時跳過；診斷頁保留，並新增prefilterCount方便確認官方預篩池是否建立成功。</div></div>
+<div class="notice">V10.7 Top20 補滿版：核心候選維持原本嚴格主流產業條件；若核心不足20檔，才依分數由非排除產業中的合格股票補位，並標示「補位候選」。背景掃描也會保留少量名額輪掃補位池，避免Top20長期只有十多檔。原 V10.6 持股優先版：每一輪先優先更新全部持股行情，等持股更新流程完成後才開始掃今日/盤後候選池；單一持股若逾時只跳過該檔，不會拖住其他持股。Top20仍維持官方預篩主流產業→Fugle精掃候選池→FinMind/TWSE/TPEx補資料的架構。新增 /api/holdings-health 可直接確認目前幾檔持股已取得行情。原 V10.5 說明：修正 V10.4 產業正規化使用 re.match 卻漏掉 import re，導致官方預篩直接拋出 NameError、Fugle 永遠停在首次更新中、collector-health 回傳500的真正問題。另修正資料源診斷的 Fugle 變數名稱，collector 發生任何例外時會顯示 error 而不再假裝一直更新。原 V10.4 說明：修正掃描從1101開始、長時間只處理水泥食品而Top20為0的核心問題。現在先用TWSE上市公司基本資料與TPEx上櫃公司基本資料取得公司代號、名稱、產業別與實收資本額，先排除食品、水泥、生技醫療、觀光等非目標產業，再建立科技/電子/半導體/AI相關與航運候選池；Fugle只對候選池做即時行情精掃，不再浪費請求從全市場代號順序慢慢掃。背景仍採分批、單檔逾時跳過；診斷頁保留，並新增prefilterCount方便確認官方預篩池是否建立成功。</div></div>
 
 <div id="pb" class="modalback"><div class="modal"><h3 id="pt">解鎖管理</h3><p class="muted">PIN 只存在目前裝置的瀏覽器。</p><input id="p1" type="password" inputmode="numeric" placeholder="PIN"><input id="p2" type="password" inputmode="numeric" placeholder="再次輸入 PIN" style="display:none"><div class="acts"><button class="btn green" onclick="submitPin()">確認</button><button class="btn red" onclick="closePin()">取消</button></div></div></div>
 
@@ -243,7 +243,7 @@ function renderRadar(){
        <div class="o">${r.breakout??"-"}</div>
        <div>${r.stage??"-"}</div>
        <div><button class="btn radarToggle" onclick="toggleRadarDetail('${key}')">${open?"收合 ▲":"展開 ▼"}</button></div>
-       <div>${mode==="after"?instSignal(r):(r.fundamentalAvailable||r.chipAvailable?"已補資料":"部分資料待補")}</div>
+       <div><b class="${r.candidateTier==='補位候選'?'o':'g'}">${r.candidateTier||"核心候選"}</b><br><small>${mode==="after"?instSignal(r):(r.fundamentalAvailable||r.chipAvailable?"已補資料":"部分資料待補")}</small></div>
      </div>
 
      <div class="radarMore ${open?"open":""}">
@@ -258,7 +258,7 @@ function renderRadar(){
          <div class="radarMetric"><small>籌碼分</small><b>${r.chipScore??"-"}</b></div>
          <div class="radarMetric"><small>綜合分</small><b class="gold">${r.score??"-"}</b></div>
          <div class="radarMetric"><small>熱門題材</small><b>${(r.topicTags||[]).join(" / ")||"未標記"}</b></div>
-         <div class="radarMetric"><small>題材資格</small><b class="g">主流題材通過</b></div>
+         <div class="radarMetric"><small>候選層級</small><b class="${r.candidateTier==='補位候選'?'o':'g'}">${r.candidateTier||"核心候選"}</b></div>
          <div class="radarMetric"><small>實收資本額</small><b>${r.paidInCapital==null?"資料待補":(Number(r.paidInCapital)/100000000).toFixed(1)+" 億"}</b></div>
          <div class="radarMetric"><small>${mode==="after"?"盤後確認分":"盤中突破分"}</small><b class="gold">${mode==="after"?(r.afterRankScore??"-"):(r.todayRankScore??"-")}</b></div>
          <div class="radarMetric"><small>法人燈號</small><b>${instSignal(r)}</b></div>

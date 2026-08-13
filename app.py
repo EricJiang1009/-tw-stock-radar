@@ -30,7 +30,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.6")
+app = FastAPI(title="台股波段雷達 V10.7")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -296,6 +296,37 @@ def radar_hard_filter(x):
         except Exception:
             pass
     return allowed_radar_theme(x)
+
+
+def radar_relaxed_filter(x):
+    """V10.7 fallback tier: keep quality/risk gates, relax only the main-theme whitelist.
+    Used solely to fill Top 20 when strict core candidates are fewer than 20.
+    """
+    if not x or x.get("marginExcluded"):
+        return False
+    try:
+        if float(x.get("price",0) or 0) < MIN_RADAR_PRICE:
+            return False
+    except Exception:
+        return False
+
+    cap=x.get("paidInCapital")
+    if cap is not None:
+        try:
+            if float(cap) < MIN_PAID_IN_CAPITAL:
+                return False
+        except Exception:
+            pass
+
+    industry, code = normalize_industry_value(x.get("industry", ""))
+    if code in BLOCKED_INDUSTRY_CODES:
+        return False
+    if any(k in industry for k in BLOCKED_INDUSTRY_KEYWORDS):
+        return False
+    return True
+
+def radar_publish_filter(x):
+    return radar_hard_filter(x) or radar_relaxed_filter(x)
 
 company_meta: dict[str, dict] = {}
 ENRICH_TTL = 21600
@@ -833,9 +864,12 @@ async def collect_symbol_full(symbol: str):
 def rebuild_working():
     global working_today, working_after
 
-    eligible = []
+    core=[]
+    fallback=[]
     for x in analysis_cache.values():
-        if not radar_hard_filter(x):
+        strict=radar_hard_filter(x)
+        relaxed=radar_relaxed_filter(x)
+        if not strict and not relaxed:
             continue
 
         # Keep earlier high-priced exception behavior.
@@ -843,15 +877,14 @@ def rebuild_working():
             continue
 
         y = dict(x)
+        y["candidateTier"] = "核心候選" if strict else "補位候選"
         sig, inst_bonus = institutional_signal(y)
 
-        # Today = intraday ignition / sudden volume / breaking out now.
         today_extra = breakout_signal(y, after=False)
         today_extra += min(18, max(0, float(y.get("volRatio",0) or 0) - 1) * 7)
         today_extra += float(y.get("topicBonus", 0) or 0)
         y["todayRankScore"] = round(y.get("score",0) + today_extra, 1)
 
-        # After-hours = confirmed first-day breakout; failed/low-volume breakout is punished.
         after_extra = breakout_signal(y, after=True)
         after_extra += float(y.get("topicBonus", 0) or 0)
         after_extra += inst_bonus
@@ -859,13 +892,16 @@ def rebuild_working():
             after_extra -= 10
         y["afterRankScore"] = round(y.get("score",0) + after_extra, 1)
         y["institutionSignal"] = sig
-        eligible.append(y)
+        (core if strict else fallback).append(y)
 
-    today = sorted(eligible, key=lambda z: z.get("todayRankScore",0), reverse=True)
-    after = sorted(eligible, key=lambda z: z.get("afterRankScore",0), reverse=True)
+    core_today=sorted(core, key=lambda z: z.get("todayRankScore",0), reverse=True)
+    fill_today=sorted(fallback, key=lambda z: z.get("todayRankScore",0), reverse=True)
+    core_after=sorted(core, key=lambda z: z.get("afterRankScore",0), reverse=True)
+    fill_after=sorted(fallback, key=lambda z: z.get("afterRankScore",0), reverse=True)
 
-    working_today = today[:20]
-    working_after = after[:20]
+    # Core candidates always rank first. Only use relaxed candidates to fill missing slots.
+    working_today=(core_today + fill_today)[:20]
+    working_after=(core_after + fill_after)[:20]
 
 
 async def collect_holdings_full():
@@ -887,6 +923,31 @@ async def collect_holdings_full():
 
     await asyncio.gather(*[guarded(s) for s in list(holding_symbols)])
 
+
+
+def official_fallback_symbols():
+    """V10.7 secondary scan pool for Top20 fill-up.
+    Keeps explicit blocked sectors out, but does not require the strict technology/shipping whitelist.
+    """
+    candidates=[]
+    seen=set()
+    for sym,meta in list(company_meta.items()):
+        s=str(sym)
+        if not s.isdigit() or len(s)!=4:
+            continue
+        industry,code=normalize_industry_value(meta.get("industry",""))
+        if code in BLOCKED_INDUSTRY_CODES or any(k in (industry or "") for k in BLOCKED_INDUSTRY_KEYWORDS):
+            continue
+        cap=meta.get("paidInCapital")
+        if cap is not None:
+            try:
+                if float(cap) < MIN_PAID_IN_CAPITAL:
+                    continue
+            except Exception:
+                pass
+        if s not in seen:
+            candidates.append(s); seen.add(s)
+    return candidates
 
 
 def official_prefilter_symbols():
@@ -985,20 +1046,32 @@ async def collect_cycle():
         except Exception:
             pass
 
-        # C) After holdings are done, scan only the prefiltered target-sector pool.
-        symbols=official_prefilter_symbols()
-        if not symbols:
-            symbols=current_universe()
+        # C) V10.7: strict core pool first, plus a small relaxed pool so Top20 can be filled.
+        primary=official_prefilter_symbols()
+        fallback=official_fallback_symbols()
+        if not primary:
+            primary=current_universe()
 
-        # Never waste candidate slots rescanning holdings in the same cycle.
-        symbols=[s for s in symbols if s not in holding_symbols]
-        symbols=sorted(symbols, key=priority_score_for_symbol, reverse=True)
+        primary=[s for s in primary if s not in holding_symbols]
+        primary=sorted(primary, key=priority_score_for_symbol, reverse=True)
+        primary_set=set(primary)
+        fallback=[s for s in fallback if s not in holding_symbols and s not in primary_set]
+        fallback=sorted(fallback, key=priority_score_for_symbol, reverse=True)
 
-        if symbols:
-            start=rotation_index % len(symbols)
-            batch_size=min(CHUNK_SIZE, 36, len(symbols))
-            chunk=[symbols[(start+i)%len(symbols)] for i in range(batch_size)]
-            rotation_index=(start+len(chunk))%len(symbols)
+        # Spend most requests on strict candidates; reserve a smaller share for fill-up candidates.
+        chunk=[]
+        if primary:
+            p_take=min(max(12, CHUNK_SIZE-6), len(primary))
+            p_start=rotation_index % len(primary)
+            chunk.extend(primary[(p_start+i)%len(primary)] for i in range(p_take))
+            rotation_index=(p_start+p_take)%len(primary)
+        if fallback:
+            f_take=min(6, len(fallback))
+            # Use a derived offset so the fallback pool also rotates over time.
+            f_start=(rotation_index*3) % len(fallback)
+            chunk.extend(fallback[(f_start+i)%len(fallback)] for i in range(f_take))
+
+        if chunk:
             sem=asyncio.Semaphore(3)
 
             async def guarded(sym):
@@ -1570,13 +1643,13 @@ async def publish_radar(mode: str):
     if mode == "after":
         published_after = {
             "updatedAt": time.time(),
-            "rows": [dict(x) for x in working_after if radar_hard_filter(x)][:20]
+            "rows": [dict(x) for x in working_after if radar_publish_filter(x)][:20]
         }
         return published_payload(published_after)
 
     published_today = {
         "updatedAt": time.time(),
-        "rows": [dict(x) for x in working_today if radar_hard_filter(x)][:20]
+        "rows": [dict(x) for x in working_today if radar_publish_filter(x)][:20]
     }
     return published_payload(published_today)
 
