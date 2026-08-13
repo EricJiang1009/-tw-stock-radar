@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.1")
+app = FastAPI(title="台股波段雷達 V10.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -183,21 +183,83 @@ BLOCKED_INDUSTRY_KEYWORDS = [
     "紡織","橡膠","建材","營造","金融","保險","貿易","消費"
 ]
 
+
+# TWSE/TPEx/MOPS may expose industry as text or as an industry code.
+# These codes follow the exchange industry grouping used for listed/OTC companies.
+INDUSTRY_CODE_MAP = {
+    "01":"水泥工業",
+    "02":"食品工業",
+    "03":"塑膠工業",
+    "04":"紡織纖維",
+    "05":"電機機械",
+    "06":"電器電纜",
+    "08":"玻璃陶瓷",
+    "09":"造紙工業",
+    "10":"鋼鐵工業",
+    "11":"橡膠工業",
+    "12":"汽車工業",
+    "14":"建材營造",
+    "15":"航運業",
+    "16":"觀光餐旅",
+    "17":"金融保險",
+    "18":"貿易百貨",
+    "19":"油電燃氣",
+    "20":"其他",
+    "21":"化學工業",
+    "22":"生技醫療",
+    "24":"半導體業",
+    "25":"電腦及週邊設備業",
+    "26":"光電業",
+    "27":"通信網路業",
+    "28":"電子零組件業",
+    "29":"電子通路業",
+    "30":"資訊服務業",
+    "31":"其他電子業",
+    "35":"綠能環保",
+    "36":"數位雲端",
+}
+
+ALLOWED_INDUSTRY_CODES = {"15","24","25","26","27","28","29","30","31","36"}
+BLOCKED_INDUSTRY_CODES = {"01","02","14","16","17","18","22"}
+
+def normalize_industry_value(v):
+    raw=str(v or "").strip()
+    if not raw:
+        return "", ""
+    code=raw.zfill(2) if raw.isdigit() and len(raw)<=2 else ""
+    if code in INDUSTRY_CODE_MAP:
+        return INDUSTRY_CODE_MAP[code], code
+    # Some feeds may prepend the code, e.g. "24 半導體業".
+    m=re.match(r"^\s*(\d{1,2})\s*[-：: ]?\s*(.*)$", raw)
+    if m:
+        code=m.group(1).zfill(2)
+        text=m.group(2).strip() or INDUSTRY_CODE_MAP.get(code,"")
+        return text, code
+    return raw, ""
+
 def allowed_radar_theme(x):
-    """Strict Top20 whitelist. Holdings are never filtered."""
-    industry = str(x.get("industry","") or "").strip()
+    """V10.2 strict whitelist with text/code normalization."""
+    raw_industry = x.get("industry","")
+    industry, code = normalize_industry_value(raw_industry)
     tags = " ".join(str(v) for v in (x.get("topicTags",[]) or []))
 
-    # Hard reject cold/unwanted official industries. No theme/name override.
+    # Explicit cold/unwanted categories are always excluded.
+    if code in BLOCKED_INDUSTRY_CODES:
+        return False
     if any(k in industry for k in BLOCKED_INDUSTRY_KEYWORDS):
         return False
 
-    # Official technology/electronics/shipping industries.
+    # Exchange-recognized technology/electronics/shipping sectors.
+    if code in ALLOWED_INDUSTRY_CODES:
+        return True
     if any(k in industry for k in ALLOWED_INDUSTRY_KEYWORDS):
         return True
 
-    # Defense/AI/technology thematic names need a real detected topic tag.
-    return any(k.lower() in tags.lower() for k in ALLOWED_THEME_KEYWORDS)
+    # Military/AI thematic companies can qualify through a detected genuine topic tag.
+    if any(k.lower() in tags.lower() for k in ALLOWED_THEME_KEYWORDS):
+        return True
+
+    return False
 
 
 def radar_hard_filter(x):
@@ -297,9 +359,17 @@ def extract_company_name(row: dict):
 
 
 def extract_industry(row: dict):
-    for k in ("產業別", "產業類別", "Industry", "industry_category"):
+    for k in (
+        "產業別","產業類別","產業別代碼","產業代號",
+        "Industry","industry_category","IndustryCode","industry_code"
+    ):
         if row.get(k) not in (None, ""):
             return str(row.get(k)).strip()
+    # Flexible fallback if the official schema wording changes.
+    for k,v in row.items():
+        sk=str(k)
+        if "產業" in sk and v not in (None,""):
+            return str(v).strip()
     return ""
 
 
@@ -639,7 +709,10 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
     meta = company_meta.get(q["symbol"], {})
     paid_in_capital = meta.get("paidInCapital")
     industry = meta.get("industry", "")
-    topic_bonus, topic_tags = hot_topic_score(q.get("name",""), industry, fundamental.get("topicTags",""))
+    company_name = meta.get("name") or q.get("name","")
+    if not q.get("name") or q.get("name")==q.get("symbol"):
+        q["name"] = company_name or q.get("symbol")
+    topic_bonus, topic_tags = hot_topic_score(company_name, industry, fundamental.get("topicTags",""))
 
     technical_score = score_technical(change, vol_ratio, dist, tech)
     fundamental_score = score_fundamental(fundamental)
@@ -701,7 +774,9 @@ def build_analysis(q: dict, tech: dict) -> dict | None:
         "trustStreak": chip.get("trustStreak", 0),
         "dealerStreak": chip.get("dealerStreak", 0),
         "paidInCapital": paid_in_capital,
-        "industry": industry,
+        "industry": normalize_industry_value(industry)[0] or industry,
+        "industryRaw": industry,
+        "industryCode": normalize_industry_value(industry)[1],
         "topicTags": topic_tags,
         "topicBonus": topic_bonus,
         "officialSource": official.get("officialSource"),
@@ -1196,6 +1271,48 @@ async def startup_event():
 async def root():
     return FileResponse("index.html")
 
+
+@app.get("/api/filter-health")
+async def filter_health():
+    total=len(analysis_cache)
+    price_ok=0
+    cap_ok=0
+    theme_ok=0
+    final_ok=0
+    samples=[]
+    for x in analysis_cache.values():
+        try:
+            if float(x.get("price",0) or 0)>=MIN_RADAR_PRICE:
+                price_ok+=1
+        except Exception:
+            pass
+        cap=x.get("paidInCapital")
+        if cap is None:
+            cap_ok+=1
+        else:
+            try:
+                if float(cap)>=MIN_PAID_IN_CAPITAL: cap_ok+=1
+            except Exception:
+                cap_ok+=1
+        if allowed_radar_theme(x):
+            theme_ok+=1
+        if radar_hard_filter(x):
+            final_ok+=1
+        if len(samples)<12:
+            samples.append({
+                "symbol":x.get("symbol"),"name":x.get("name"),
+                "industry":x.get("industry"),"industryCode":x.get("industryCode"),
+                "price":x.get("price"),"themePass":allowed_radar_theme(x),
+                "finalPass":radar_hard_filter(x)
+            })
+    return {
+        "analysisCache":total,
+        "pricePass":price_ok,
+        "capitalPass":cap_ok,
+        "themePass":theme_ok,
+        "finalPass":final_ok,
+        "samples":samples
+    }
 
 @app.get("/api/collector-health")
 async def collector_health():
