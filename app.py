@@ -29,7 +29,7 @@ FINMIND_INTERVAL_OFF = 1800
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() == "true" and bool(API_KEY)
 TZ = ZoneInfo("Asia/Taipei")
 
-app = FastAPI(title="台股波段雷達 V10.2")
+app = FastAPI(title="台股波段雷達 V10.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1274,53 +1274,92 @@ async def root():
 
 @app.get("/api/filter-health")
 async def filter_health():
-    total=len(analysis_cache)
+    # V10.3: copy a stable snapshot first. Background collector may mutate
+    # analysis_cache while this endpoint is running.
+    try:
+        snapshot=[dict(x) for x in list(analysis_cache.values()) if isinstance(x,dict)]
+    except Exception:
+        snapshot=[]
+
+    total=len(snapshot)
     price_ok=0
     cap_ok=0
     theme_ok=0
     final_ok=0
     samples=[]
-    for x in analysis_cache.values():
+
+    for x in snapshot:
         try:
             if float(x.get("price",0) or 0)>=MIN_RADAR_PRICE:
                 price_ok+=1
         except Exception:
             pass
+
         cap=x.get("paidInCapital")
         if cap is None:
             cap_ok+=1
         else:
             try:
-                if float(cap)>=MIN_PAID_IN_CAPITAL: cap_ok+=1
+                if float(cap)>=MIN_PAID_IN_CAPITAL:
+                    cap_ok+=1
             except Exception:
                 cap_ok+=1
-        if allowed_radar_theme(x):
+
+        try:
+            theme_pass=bool(allowed_radar_theme(x))
+        except Exception:
+            theme_pass=False
+
+        try:
+            final_pass=bool(radar_hard_filter(x))
+        except Exception:
+            final_pass=False
+
+        if theme_pass:
             theme_ok+=1
-        if radar_hard_filter(x):
+        if final_pass:
             final_ok+=1
-        if len(samples)<12:
+
+        if len(samples)<20:
             samples.append({
-                "symbol":x.get("symbol"),"name":x.get("name"),
-                "industry":x.get("industry"),"industryCode":x.get("industryCode"),
-                "price":x.get("price"),"themePass":allowed_radar_theme(x),
-                "finalPass":radar_hard_filter(x)
+                "symbol":x.get("symbol"),
+                "name":x.get("name"),
+                "industry":x.get("industry"),
+                "industryRaw":x.get("industryRaw"),
+                "industryCode":x.get("industryCode"),
+                "price":x.get("price"),
+                "paidInCapital":x.get("paidInCapital"),
+                "topicTags":x.get("topicTags",[]),
+                "themePass":theme_pass,
+                "finalPass":final_pass
             })
+
     return {
+        "ok":True,
         "analysisCache":total,
         "pricePass":price_ok,
         "capitalPass":cap_ok,
         "themePass":theme_ok,
         "finalPass":final_ok,
+        "workingTodayCount":len(working_today),
+        "workingAfterCount":len(working_after),
+        "collectorStatus":collector_status,
+        "lastCollectAt":last_collect_at,
         "samples":samples
     }
 
 @app.get("/api/collector-health")
 async def collector_health():
+    try:
+        cache_count=len(list(analysis_cache.keys()))
+    except Exception:
+        cache_count=0
     return {
+        "ok":True,
         "collectorStatus": collector_status,
         "lastCollectAt": last_collect_at,
         "universeCount": len(current_universe()),
-        "analysisCacheCount": len(analysis_cache),
+        "analysisCacheCount": cache_count,
         "workingTodayCount": len(working_today),
         "workingAfterCount": len(working_after),
         "officialUpdatedAt": official_cache.get("updatedAt"),
